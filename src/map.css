@@ -1,0 +1,136 @@
+.map-위성 {
+  filter: none;
+  background-color: #657066;
+  background-image: linear-gradient(32deg, transparent 44%, rgba(222, 217, 198, .42) 45% 49%, transparent 50%), linear-gradient(118deg, transparent 44%, rgba(216, 211, 190, .38) 45% 49%, transparent 50%), repeating-linear-gradient(90deg, rgba(24, 45, 32, .2) 0 1px, transparent 1px 42px), repeating-linear-gradient(0deg, rgba(24, 45, 32, .2) 0 1px, transparent 1px 42px);
+}
+
+.road { z-index: 1; }
+.road.road-colored { background: #f6cf73; box-shadow: 0 0 0 2px rgba(209, 87, 0, .42); }
+.yard-block, .map-object, .map-label { z-index: 3; }
+.water { z-index: 0; }
+
+.cad-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(90deg, transparent 0 79px, rgba(237, 113, 0, .35) 80px 81px), repeating-linear-gradient(0deg, transparent 0 59px, rgba(237, 113, 0, .3) 60px 61px);
+}
+.cad-overlay i { position: absolute; border: 1px dashed rgba(209, 87, 0, .75); background: rgba(252, 245, 239, .08); }
+.cad-overlay i:nth-child(1) { left: 8%; top: 9%; width: 21%; height: 22%; }
+.cad-overlay i:nth-child(2) { left: 39%; top: 13%; width: 25%; height: 26%; }
+.cad-overlay i:nth-child(3) { left: 13%; top: 62%; width: 27%; height: 20%; }
+.cad-overlay i:nth-child(4) { left: 48%; top: 55%; width: 17%; height: 28%; }
+
+.map-object { position: absolute; display: grid; place-items: center; color: #fff; font-size: 9px; font-weight: 700; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .25); }
+.material { width: 27px; height: 27px; border-radius: 5px; background: #2a6dfc; }
+.ma1 { left: 13%; top: 66%; }
+.ma2 { left: 56%; top: 18%; }
+.obstacle { width: 25px; height: 25px; border-radius: 50%; background: #d61d21; }
+.ob1 { left: 34%; top: 43%; }
+.ob2 { left: 64%; top: 67%; }
+.facility { min-width: 30px; height: 26px; padding: 0 5px; border-radius: 4px; background: #40b22c; }
+.fa1 { left: 8%; top: 40%; }
+.fa2 { left: 69%; top: 32%; }
+
+.option-icon { width: 12px; height: 12px; border: 1px solid #ed7100; border-radius: 2px; background: linear-gradient(135deg, #fcf5ef 50%, #ed7100 50%); }
+.legend-자재 { background: #2a6dfc; }
+.legend-블록 { background: #ed7100; }
+.legend-방해요소 { background: #d61d21; border-radius: 50%; }
+.legend-운송자원 { background: #2d2d2d; border-radius: 50%; }
+.legend-주요시설 { background: #40b22c; }
+.machine { width: 38px; height: 38px; padding: 2px; border-radius: 8px; line-height: 1; }
+.machine .vehicle-icon { display: block; font-size: 16px; line-height: 16px; }
+.machine small { display: block; margin-top: 2px; color: #fff; font-size: 7px; font-weight: 700; }
+.machine.forklift { background: #d15700; }
+.machine.crane { background: #2d2d2d; }
+.machine.transporter { background: #2a6dfc; }
+.machine.transporter .vehicle-icon { font-size: 18px; transform: scaleX(1.2); }
+
+.map-stage {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  background: #d9d5c5;
+}
+.vworld-map { position: absolute; inset: -12%; z-index: 0; width: 124%; height: 124%; transform-origin: center; transition: transform 220ms ease; }
+.map-stage .mock-map { z-index: 1; }
+.map-stage.has-vworld .mock-map { background-color: transparent; background-image: none; pointer-events: none; }
+.map-stage.has-vworld .mock-map button { pointer-events: auto; }
+.map-stage.has-vworld .water { opacity: .12; }
+.map-stage.has-vworld .road { opacity: .72; }
+.vworld-key-notice { position: absolute; z-index: 7; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #f2c59d; border-radius: 4px; background: rgba(255,255,255,.94); box-shadow: 0 2px 8px rgba(54,59,64,.14); white-space: nowrap; }
+.vworld-key-notice strong { color: #d15700; font-size: 10px; }
+.vworld-key-notice span { color: #717171; font-size: 10px; }
+.leaflet-control-attribution { font-size: 9px !important; }
+.map-stage .mock-map {
+  position: absolute;
+  inset: -12%;
+  width: 124%;
+  height: 124%;
+  transform-origin: center;
+  transition: transform 220ms ease, background-color 180ms ease;
+}
+.map-stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #d9d5c5;
+}
+.map-view-controls {
+  position: absolute;
+  z-index: 8;
+  top: 16px;
+  left: 16px;
+  display: grid;
+  grid-template-columns: 34px;
+  overflow: hidden;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(54, 59, 64, .18);
+}
+.map-view-controls button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+  color: #555;
+  font-size: 17px;
+}
+.map-view-controls button:hover { background: #fcf5ef; color: #ed7100; }
+.map-view-controls button:disabled { color: #c6c6c6; cursor: not-allowed; background: #f8f8f8; }
+.map-view-controls span { height: 24px; display: grid; place-items: center; color: #717171; font-size: 9px; border-bottom: 1px solid #f0f0f0; }
+.rotation-indicator { position: absolute; z-index: 8; left: 60px; top: 16px; padding: 6px 8px; border-radius: 4px; background: rgba(255,255,255,.92); color: #717171; font-size: 10px; box-shadow: 0 2px 8px rgba(54,59,64,.12); }
+
+.map-search { position: absolute; z-index: 9; top: 16px; left: 50%; width: min(340px, calc(100% - 160px)); transform: translateX(-50%); }
+.map-search > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.map-search > div { display: flex; height: 36px; overflow: hidden; border: 1px solid #c6c6c6; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px rgba(54,59,64,.18); }
+.map-search input { min-width: 0; flex: 1; padding: 0 10px; border: 0; outline: 0; color: #2d2d2d; font-size: 12px; }
+.map-search > div:focus-within { border-color: #ed7100; }
+.map-search button { min-width: 54px; border: 0; background: #ed7100; color: #fff; font-size: 12px; font-weight: 500; }
+.map-search .clear-search { min-width: 32px; background: #fff; color: #717171; border-left: 1px solid #f0f0f0; font-size: 17px; }
+.map-search p { display: table; margin: 5px auto 0; padding: 5px 8px; border-radius: 4px; background: rgba(255,255,255,.94); color: #40b22c; font-size: 10px; box-shadow: 0 2px 8px rgba(54,59,64,.12); }
+.map-search p.error { color: #d61d21; }
+.focused { animation: object-focus 1s ease-in-out infinite alternate; outline: 4px solid rgba(237,113,0,.38); outline-offset: 4px; }
+@keyframes object-focus { from { filter: brightness(1); box-shadow: 0 0 0 3px rgba(255,255,255,.85), 0 0 0 7px rgba(237,113,0,.45); } to { filter: brightness(1.15); box-shadow: 0 0 0 3px rgba(255,255,255,.95), 0 0 0 12px rgba(237,113,0,.12); } }
+.object-button { text-align: left; cursor: pointer; }
+.object-button:hover { border-color: #ed7100; filter: brightness(1.03); }
+.object-detail { position: absolute; z-index: 10; right: 16px; top: 16px; width: 280px; overflow: hidden; border: 1px solid #f0f0f0; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(54,59,64,.22); }
+.object-detail header { min-height: 58px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0; }
+.object-detail header span { color: #ed7100; font-size: 10px; font-weight: 700; }
+.object-detail header h3 { margin: 3px 0 0; color: #2d2d2d; font-size: 14px; }
+.object-detail header button { width: 28px; height: 28px; border: 0; background: #f8f8f8; border-radius: 4px; color: #717171; font-size: 18px; }
+.object-detail dl { margin: 0; padding: 6px 14px 12px; }
+.object-detail dl div { min-height: 35px; display: grid; grid-template-columns: 82px 1fr; align-items: center; border-bottom: 1px solid #f8f8f8; }
+.object-detail dl div:last-child { border-bottom: 0; }
+.object-detail dt { color: #717171; font-size: 11px; }
+.object-detail dd { margin: 0; color: #2d2d2d; font-size: 11px; font-weight: 500; text-align: right; }
+.object-detail dd.status { justify-self: end; padding: 3px 7px; border-radius: 999px; background: #fcf5ef; color: #d15700; }
+
+@media (max-width: 820px) {
+  .map-stage { min-height: 400px; }
+  .map-search { left: 74px; width: calc(100% - 90px); transform: none; }
+  .object-detail { top: 62px; right: 12px; width: min(280px, calc(100% - 24px)); }
+}
