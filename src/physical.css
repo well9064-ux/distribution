@@ -29,7 +29,7 @@
 .panel-heading small { display: block; margin-top: 7px; color: #999; font-size: 10px; }
 .physical-list { height: calc(100% - 74px); padding: 8px; overflow-y: auto; }
 .physical-list>button { position: relative; width: 100%; min-height: 64px; margin-bottom: 4px; padding: 8px 8px 8px 6px; display: grid; grid-template-columns: 20px 5px 1fr auto; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 4px; background: #fff; color: #2d2d2d; text-align: left; }
-.physical-list>button:hover { background: #f8f8f8; }
+.physical-list>button:hover { border-color: #d9d9d9; background: #fff; }
 .physical-list>button.selected { border-color: #ed7100; background: #fff; box-shadow: inset 3px 0 0 #ed7100; }
 .physical-list>button:focus-visible { outline: 2px solid #ed7100; outline-offset: 2px; }
 .physical-list>button.dragging { opacity: .4; }
@@ -55,6 +55,7 @@
 .physical-map-panel:fullscreen .physical-map { inset: 0; width: 100%; height: 100%; }
 .drawing-badge { position: absolute; z-index: 700; top: 14px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border-radius: 999px; background: #ed7100; color: #fff; font-size: 11px; box-shadow: 0 2px 8px rgba(54,59,64,.25); }
 .parcel-map-label { padding: 4px 7px !important; border: 0 !important; border-radius: 4px !important; background: rgba(255,255,255,.9) !important; color: #2d2d2d !important; font-size: 9px !important; font-weight: 700 !important; box-shadow: 0 2px 6px rgba(54,59,64,.18) !important; }
+.physical-grid-outline,.physical-grid-line { filter: drop-shadow(0 0 1px rgba(0,0,0,.95)); }
 .parcel-map-label::before { display: none; }
 .physical-detail-panel { border-left: 1px solid #f0f0f0; overflow-y: auto; }
 .detail-heading { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }

@@ -77,7 +77,7 @@ const landSubmenus = ['물리지번 목록', '논리지번 목록', '지번 목�
 const landMenuOpen = ref(false)
 const physicalMapElement = ref(null)
 const physicalMapContainer = ref(null)
-const selectedPhysicalId = ref('PHY-001')
+const selectedPhysicalId = ref('PHY-316')
 const draggingPhysicalIndex = ref(null)
 const drawMode = ref(false)
 const editingPhysicalId = ref('')
@@ -95,12 +95,36 @@ const PHYSICAL_GRID_CENTER = [34.9012707,127.593559]
 const PHYSICAL_GRID_CELL_METERS = 10
 const METERS_PER_LATITUDE_DEGREE = 111320
 const METERS_PER_LONGITUDE_DEGREE = 111320 * Math.cos(PHYSICAL_GRID_CENTER[0] * Math.PI / 180)
-const physicalParcels = ref([
-  { id:'PHY-001', name:'A 야드 북측 구역', startParcel:'광양읍 황길리 1320-1', endParcel:'광양읍 황길리 1320-18', logicalParcel:'L-A-01', enabled:true, createdAt:'2026-06-18', createdBy:'김관리', updatedAt:'2026-07-20', updatedBy:'이담당', color:'#ED7100', points:[[34.9032,127.5905],[34.9035,127.5940],[34.9017,127.5944],[34.9015,127.5908]] },
-  { id:'PHY-002', name:'B 야드 중앙 구역', startParcel:'광양읍 황길리 1321-2', endParcel:'광양읍 황길리 1321-15', logicalParcel:'L-B-01', enabled:true, createdAt:'2026-06-21', createdBy:'박담당', updatedAt:'2026-07-19', updatedBy:'박담당', color:'#2A6DFC', points:[[34.9014,127.5910],[34.9016,127.5946],[34.8998,127.5948],[34.8997,127.5912]] },
-  { id:'PHY-003', name:'C 야드 남측 구역', startParcel:'광양읍 황길리 1322-1', endParcel:'광양읍 황길리 1322-11', logicalParcel:'L-C-02', enabled:false, createdAt:'2026-06-25', createdBy:'최관리', updatedAt:'2026-07-16', updatedBy:'김관리', color:'#40B22C', points:[[34.8995,127.5915],[34.8997,127.5949],[34.8981,127.5951],[34.8980,127.5918]] },
-  { id:'PHY-004', name:'자재 입고 대기 구역', startParcel:'광양읍 황길리 1323-3', endParcel:'광양읍 황길리 1323-9', logicalParcel:'L-IN-01', enabled:true, createdAt:'2026-07-02', createdBy:'정담당', updatedAt:'2026-07-21', updatedBy:'정담당', color:'#F98E02', points:[[34.9028,127.5950],[34.9030,127.5971],[34.9017,127.5973],[34.9016,127.5951]] }
-])
+const PHYSICAL_GRID_COLOR = '#FFE600'
+const PHYSICAL_PARCELS_STORAGE_KEY = 'hanwha-physical-parcels-v1'
+function sampleGridPoints(centerHorizontal,centerVertical,columns,rows) {
+  const halfWidth = columns * PHYSICAL_GRID_CELL_METERS / 2
+  const halfHeight = rows * PHYSICAL_GRID_CELL_METERS / 2
+  const angle = DEFAULT_MAP_ROTATION * Math.PI / 180
+  return [[-halfWidth,-halfHeight],[halfWidth,-halfHeight],[halfWidth,halfHeight],[-halfWidth,halfHeight]].map(([horizontal,vertical]) => {
+    const localHorizontal = centerHorizontal + horizontal
+    const localVertical = centerVertical + vertical
+    const eastMeters = Math.cos(angle) * localHorizontal + Math.sin(angle) * localVertical
+    const southMeters = -Math.sin(angle) * localHorizontal + Math.cos(angle) * localVertical
+    return [PHYSICAL_GRID_CENTER[0] - southMeters / METERS_PER_LATITUDE_DEGREE,PHYSICAL_GRID_CENTER[1] + eastMeters / METERS_PER_LONGITUDE_DEGREE]
+  })
+}
+const defaultPhysicalParcels = [
+  { id:'PHY-316',name:'한화오션에코텍',startParcel:'(0,0)',endParcel:'(152,65)',logicalParcel:'미연계',enabled:true,createdAt:'2026-07-22',createdBy:'관리자',updatedAt:'2026-07-22',updatedBy:'관리자',gridColumns:153,gridRows:66,points:sampleGridPoints(0,0,153,66) },
+  { id:'PHY-747',name:'임대지역',startParcel:'(0,0)',endParcel:'(27,42)',logicalParcel:'미연계',enabled:true,createdAt:'2026-07-22',createdBy:'관리자',updatedAt:'2026-07-22',updatedBy:'관리자',gridColumns:28,gridRows:43,points:sampleGridPoints(650,-300,28,43) },
+]
+function loadPhysicalParcels() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PHYSICAL_PARCELS_STORAGE_KEY) || 'null')
+    return Array.isArray(stored) && stored.length ? stored : JSON.parse(JSON.stringify(defaultPhysicalParcels))
+  } catch { return JSON.parse(JSON.stringify(defaultPhysicalParcels)) }
+}
+function persistPhysicalParcels() {
+  localStorage.setItem(PHYSICAL_PARCELS_STORAGE_KEY,JSON.stringify(physicalParcels.value.filter(parcel => !parcel.draft)))
+}
+const physicalParcels = ref(loadPhysicalParcels())
+if (!physicalParcels.value.some(parcel => parcel.id === selectedPhysicalId.value)) selectedPhysicalId.value = physicalParcels.value[0]?.id || ''
+if (!localStorage.getItem(PHYSICAL_PARCELS_STORAGE_KEY)) persistPhysicalParcels()
 const selectedPhysicalParcel = computed(() => physicalParcels.value.find(item => item.id === selectedPhysicalId.value))
 const physicalDraftParcel = computed(() => physicalParcels.value.find(item => item.draft))
 const physicalGridAddresses = computed(() => {
@@ -222,6 +246,7 @@ function dropPhysicalAt(index) {
   reordered.splice(index,0,moved)
   physicalParcels.value = reordered
   draggingPhysicalIndex.value = null
+  persistPhysicalParcels()
 }
 function createPhysicalId() {
   const used = new Set(physicalParcels.value.map(parcel => parcel.id))
@@ -262,19 +287,19 @@ function parcelGridSize(map, parcel) {
 function createParcelGridLayer(map, parcel, { onClick, draft = false } = {}) {
   const [topLeft,topRight,bottomRight,bottomLeft] = parcel.points
   const { columns,rows } = parcelGridSize(map,parcel)
-  const color = parcel.color || '#ED7100'
+  const color = PHYSICAL_GRID_COLOR
   const group = L.layerGroup().addTo(map)
   const polygon = L.polygon(parcel.points, {
-    color,weight:draft ? 3 : 4,fillColor:color,fillOpacity:parcel.enabled === false ? .08 : .2,
+    color,weight:2,fillColor:color,fillOpacity:0,className:'physical-grid-outline',
     dashArray:parcel.enabled === false ? '5 5' : undefined,
   }).addTo(group)
   for (let column = 1; column < columns; column += 1) {
     const ratio = column / columns
-    L.polyline([interpolatePoint(topLeft,topRight,ratio),interpolatePoint(bottomLeft,bottomRight,ratio)], { color,weight:1,opacity:.72,interactive:false }).addTo(group)
+    L.polyline([interpolatePoint(topLeft,topRight,ratio),interpolatePoint(bottomLeft,bottomRight,ratio)], { color,weight:1,opacity:.95,interactive:false,className:'physical-grid-line' }).addTo(group)
   }
   for (let row = 1; row < rows; row += 1) {
     const ratio = row / rows
-    L.polyline([interpolatePoint(topLeft,bottomLeft,ratio),interpolatePoint(topRight,bottomRight,ratio)], { color,weight:1,opacity:.72,interactive:false }).addTo(group)
+    L.polyline([interpolatePoint(topLeft,bottomLeft,ratio),interpolatePoint(topRight,bottomRight,ratio)], { color,weight:1,opacity:.95,interactive:false,className:'physical-grid-line' }).addTo(group)
   }
   if (!draft) polygon.bindTooltip(`${parcel.id} · ${parcel.name}`, { permanent:true,direction:'center',className:'parcel-map-label' })
   if (onClick) polygon.on('click',onClick)
@@ -289,7 +314,7 @@ function renderPhysicalDraftGrid() {
     points:selection.points,
     gridColumns:selection.maxColumn - selection.minColumn + 1,
     gridRows:selection.maxRow - selection.minRow + 1,
-    color:'#ED7100',enabled:true,
+    enabled:true,
   }, { draft:true })
 }
 function renderPhysicalGrid() {
@@ -358,7 +383,7 @@ function startPhysicalDrawing() {
   if (drawMode.value) return
   const id = createPhysicalId()
   const today = currentKoreanDate()
-  physicalParcels.value.push({ id, name:'새 물리지번', startParcel:'', endParcel:'', logicalParcel:'미연계', enabled:true, createdAt:today, createdBy:'관리자', updatedAt:today, updatedBy:'관리자', color:'#ED7100', points:[], draft:true })
+  physicalParcels.value.push({ id, name:'새 물리지번', startParcel:'', endParcel:'', logicalParcel:'미연계', enabled:true, createdAt:today, createdBy:'관리자', updatedAt:today, updatedBy:'관리자', points:[], draft:true })
   editingPhysicalId.value = ''
   physicalEditSnapshot = undefined
   selectedPhysicalId.value = id
@@ -448,6 +473,7 @@ function completePhysicalDrawing() {
   physicalMap?.dragging.enable()
   renderPhysicalPolygons()
   selectPhysicalParcel(draft.id)
+  persistPhysicalParcels()
 }
 function requestPhysicalDelete() {
   if (!selectedPhysicalParcel.value) return
@@ -467,6 +493,7 @@ function confirmPhysicalDelete() {
   renderPhysicalPolygons()
   const selected = selectedPhysicalParcel.value
   if (selected?.points?.length) physicalMap?.fitBounds(selected.points,{ padding:[60,60],maxZoom:18 })
+  persistPhysicalParcels()
 }
 function toggleItem(item) {
   displayItems.value = displayItems.value.includes(item)
@@ -991,7 +1018,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
                   <span class="drag-handle" title="순서 변경">⠿</span><span class="draft-folder" aria-hidden="true">▰</span><label><span class="sr-only">물리지번 명칭</span><input v-model="parcel.name" maxlength="40" placeholder="물리지번 명칭 입력" /></label><b>{{ editingPhysicalId === parcel.id ? '수정중' : '작성중' }}</b>
                 </div>
                 <button v-else draggable="true" :class="{ selected: selectedPhysicalId === parcel.id, dragging: draggingPhysicalIndex === index }" :aria-pressed="selectedPhysicalId === parcel.id" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)" @click="selectPhysicalParcel(parcel.id)">
-                  <span class="drag-handle" title="순서 변경">⠿</span><i :style="{ background: parcel.color }"></i><span><strong>{{ parcel.name }}</strong><small>{{ parcel.id }} · {{ parcel.logicalParcel }}</small></span><b :class="{ off: !parcel.enabled }">{{ parcel.enabled ? '사용' : '미사용' }}</b>
+                  <span class="drag-handle" title="순서 변경">⠿</span><i :style="{ background: PHYSICAL_GRID_COLOR }"></i><span><strong>{{ parcel.name }}</strong><small>{{ parcel.id }} · {{ parcel.logicalParcel }}</small></span><b :class="{ off: !parcel.enabled }">{{ parcel.enabled ? '사용' : '미사용' }}</b>
                 </button>
               </template>
             </div>
