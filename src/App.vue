@@ -76,11 +76,20 @@ const physicalMapContainer = ref(null)
 const selectedPhysicalId = ref('PHY-001')
 const draggingPhysicalIndex = ref(null)
 const drawMode = ref(false)
-const drawPoints = ref([])
+const physicalGridSelection = ref(null)
 let physicalMap
 let physicalVworldLayers = []
 let physicalDraftLayer
+let physicalGridLayer
+let physicalGridDragStart
 let physicalPolygonLayers = []
+const PHYSICAL_GRID_ROWS = 30
+const PHYSICAL_GRID_COLUMNS = 40
+const PHYSICAL_GRID_CENTER = [34.9012707,127.593559]
+const PHYSICAL_GRID_LAT_STEP = 10 / 111320
+const PHYSICAL_GRID_LNG_STEP = 10 / (111320 * Math.cos(PHYSICAL_GRID_CENTER[0] * Math.PI / 180))
+const PHYSICAL_GRID_NORTH = PHYSICAL_GRID_CENTER[0] + (PHYSICAL_GRID_ROWS / 2 * PHYSICAL_GRID_LAT_STEP)
+const PHYSICAL_GRID_WEST = PHYSICAL_GRID_CENTER[1] - (PHYSICAL_GRID_COLUMNS / 2 * PHYSICAL_GRID_LNG_STEP)
 const physicalParcels = ref([
   { id:'PHY-001', name:'A 야드 북측 구역', startParcel:'광양읍 황길리 1320-1', endParcel:'광양읍 황길리 1320-18', logicalParcel:'L-A-01', enabled:true, createdAt:'2026-06-18', createdBy:'김관리', updatedAt:'2026-07-20', updatedBy:'이담당', color:'#ED7100', points:[[34.9032,127.5905],[34.9035,127.5940],[34.9017,127.5944],[34.9015,127.5908]] },
   { id:'PHY-002', name:'B 야드 중앙 구역', startParcel:'광양읍 황길리 1321-2', endParcel:'광양읍 황길리 1321-15', logicalParcel:'L-B-01', enabled:true, createdAt:'2026-06-21', createdBy:'박담당', updatedAt:'2026-07-19', updatedBy:'박담당', color:'#2A6DFC', points:[[34.9014,127.5910],[34.9016,127.5946],[34.8998,127.5948],[34.8997,127.5912]] },
@@ -88,6 +97,12 @@ const physicalParcels = ref([
   { id:'PHY-004', name:'자재 입고 대기 구역', startParcel:'광양읍 황길리 1323-3', endParcel:'광양읍 황길리 1323-9', logicalParcel:'L-IN-01', enabled:true, createdAt:'2026-07-02', createdBy:'정담당', updatedAt:'2026-07-21', updatedBy:'정담당', color:'#F98E02', points:[[34.9028,127.5950],[34.9030,127.5971],[34.9017,127.5973],[34.9016,127.5951]] }
 ])
 const selectedPhysicalParcel = computed(() => physicalParcels.value.find(item => item.id === selectedPhysicalId.value))
+const physicalDraftParcel = computed(() => physicalParcels.value.find(item => item.draft))
+const physicalGridAddresses = computed(() => {
+  if (!physicalGridSelection.value) return { start:'', end:'' }
+  const { minRow, maxRow, minColumn, maxColumn } = physicalGridSelection.value
+  return { start:'(0,0)', end:`(${maxColumn - minColumn},${maxRow - minRow})` }
+})
 
 const now = computed(() => new Intl.DateTimeFormat('ko-KR', {
   year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short'
@@ -115,13 +130,11 @@ function initializePhysicalMap() {
   if (!physicalMapElement.value || physicalMap) return
   physicalMap = L.map(physicalMapElement.value, { zoomControl: true }).setView([34.9012707,127.593559], 16)
   setPhysicalVworldLayer()
-  physicalMap.on('click', event => {
-    if (!drawMode.value) return
-    drawPoints.value = [...drawPoints.value, [event.latlng.lat,event.latlng.lng]]
-    if (physicalDraftLayer) physicalMap.removeLayer(physicalDraftLayer)
-    physicalDraftLayer = L.polyline(drawPoints.value, { color:'#ED7100', weight:3, dashArray:'6 5' }).addTo(physicalMap)
-  })
+  physicalMap.on('mousedown', startPhysicalGridSelection)
+  physicalMap.on('mousemove', updatePhysicalGridSelection)
+  physicalMap.on('mouseup', finishPhysicalGridSelection)
   renderPhysicalPolygons()
+  if (drawMode.value) renderPhysicalGrid()
 }
 function setPhysicalVworldLayer() {
   if (!physicalMap || !vworldKey) return
@@ -142,7 +155,7 @@ function renderPhysicalPolygons() {
   if (!physicalMap) return
   physicalPolygonLayers.forEach(layer => physicalMap.removeLayer(layer))
   const selectedParcel = physicalParcels.value.find(parcel => parcel.id === selectedPhysicalId.value)
-  physicalPolygonLayers = selectedParcel ? [selectedParcel].map(parcel => {
+  physicalPolygonLayers = selectedParcel?.points?.length ? [selectedParcel].map(parcel => {
     const layer = L.polygon(parcel.points, { color:parcel.color, weight:4, fillColor:parcel.color, fillOpacity:parcel.enabled ? .24 : .08, dashArray:parcel.enabled ? undefined : '5 5' }).addTo(physicalMap)
     layer.bindTooltip(`${parcel.id} · ${parcel.name}`, { permanent:true, direction:'center', className:'parcel-map-label' })
     layer.on('click', () => selectPhysicalParcel(parcel.id))
@@ -165,16 +178,128 @@ function dropPhysicalAt(index) {
   physicalParcels.value = reordered
   draggingPhysicalIndex.value = null
 }
-function startPhysicalDrawing() { drawMode.value = true; drawPoints.value = []; if (physicalDraftLayer) physicalMap.removeLayer(physicalDraftLayer) }
-function cancelPhysicalDrawing() { drawMode.value = false; drawPoints.value = []; if (physicalDraftLayer) physicalMap.removeLayer(physicalDraftLayer); physicalDraftLayer = null }
-function completePhysicalDrawing() {
-  if (drawPoints.value.length < 3) return
-  const sequence = String(physicalParcels.value.length + 1).padStart(3,'0')
-  const id = `PHY-${sequence}`
-  physicalParcels.value.push({ id, name:`신규 물리지번 ${sequence}`, startParcel:'미입력', endParcel:'미입력', logicalParcel:'미연계', enabled:true, createdAt:'2026-07-22', createdBy:'관리자', updatedAt:'2026-07-22', updatedBy:'관리자', color:'#ED7100', points:[...drawPoints.value] })
+function createPhysicalId() {
+  const used = new Set(physicalParcels.value.map(parcel => parcel.id))
+  let id
+  do { id = `PHY-${Math.floor(100 + Math.random() * 900)}` } while (used.has(id))
+  return id
+}
+function currentKoreanDate() {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone:'Asia/Seoul' }).format(new Date())
+}
+function physicalGridCell(latlng) {
+  const column = Math.floor((latlng.lng - PHYSICAL_GRID_WEST) / PHYSICAL_GRID_LNG_STEP)
+  const row = Math.floor((PHYSICAL_GRID_NORTH - latlng.lat) / PHYSICAL_GRID_LAT_STEP)
+  return {
+    row:Math.min(PHYSICAL_GRID_ROWS - 1, Math.max(0, row)),
+    column:Math.min(PHYSICAL_GRID_COLUMNS - 1, Math.max(0, column)),
+  }
+}
+function physicalGridCellBounds(row, column) {
+  const north = PHYSICAL_GRID_NORTH - row * PHYSICAL_GRID_LAT_STEP
+  const south = north - PHYSICAL_GRID_LAT_STEP
+  const west = PHYSICAL_GRID_WEST + column * PHYSICAL_GRID_LNG_STEP
+  const east = west + PHYSICAL_GRID_LNG_STEP
+  return { north, south, west, east }
+}
+function renderPhysicalGrid() {
+  if (!physicalMap) return
+  if (physicalGridLayer) physicalMap.removeLayer(physicalGridLayer)
+  const lines = []
+  const south = PHYSICAL_GRID_NORTH - PHYSICAL_GRID_ROWS * PHYSICAL_GRID_LAT_STEP
+  const east = PHYSICAL_GRID_WEST + PHYSICAL_GRID_COLUMNS * PHYSICAL_GRID_LNG_STEP
+  for (let row = 0; row <= PHYSICAL_GRID_ROWS; row += 1) {
+    const lat = PHYSICAL_GRID_NORTH - row * PHYSICAL_GRID_LAT_STEP
+    lines.push(L.polyline([[lat,PHYSICAL_GRID_WEST],[lat,east]], { color:'#ffffff', weight:1, opacity:.72, interactive:false }))
+  }
+  for (let column = 0; column <= PHYSICAL_GRID_COLUMNS; column += 1) {
+    const lng = PHYSICAL_GRID_WEST + column * PHYSICAL_GRID_LNG_STEP
+    lines.push(L.polyline([[PHYSICAL_GRID_NORTH,lng],[south,lng]], { color:'#ffffff', weight:1, opacity:.72, interactive:false }))
+  }
+  physicalGridLayer = L.featureGroup(lines).addTo(physicalMap)
+  physicalGridLayer.bringToFront()
+  physicalMap.fitBounds([[south,PHYSICAL_GRID_WEST],[PHYSICAL_GRID_NORTH,east]], { padding:[20,20], maxZoom:18 })
+}
+function setPhysicalGridSelection(start, end) {
+  const minRow = Math.min(start.row, end.row)
+  const maxRow = Math.max(start.row, end.row)
+  const minColumn = Math.min(start.column, end.column)
+  const maxColumn = Math.max(start.column, end.column)
+  const first = physicalGridCellBounds(minRow, minColumn)
+  const last = physicalGridCellBounds(maxRow, maxColumn)
+  const points = [[first.north,first.west],[first.north,last.east],[last.south,last.east],[last.south,first.west]]
+  physicalGridSelection.value = { minRow, maxRow, minColumn, maxColumn, points }
+  if (physicalDraftLayer) physicalMap.removeLayer(physicalDraftLayer)
+  physicalDraftLayer = L.polygon(points, { color:'#ED7100', weight:3, fillColor:'#ED7100', fillOpacity:.28, interactive:false }).addTo(physicalMap)
+  physicalDraftLayer.bindTooltip(`${maxColumn - minColumn + 1} × ${maxRow - minRow + 1}칸 · 10m 격자`, { permanent:true, direction:'center', className:'parcel-map-label' })
+}
+function startPhysicalGridSelection(event) {
+  if (!drawMode.value) return
+  physicalGridDragStart = physicalGridCell(event.latlng)
+  setPhysicalGridSelection(physicalGridDragStart, physicalGridDragStart)
+}
+function updatePhysicalGridSelection(event) {
+  if (!drawMode.value || !physicalGridDragStart) return
+  setPhysicalGridSelection(physicalGridDragStart, physicalGridCell(event.latlng))
+}
+function finishPhysicalGridSelection(event) {
+  if (!drawMode.value || !physicalGridDragStart) return
+  setPhysicalGridSelection(physicalGridDragStart, physicalGridCell(event.latlng))
+  physicalGridDragStart = null
+}
+function clearPhysicalDraftLayers() {
+  if (physicalDraftLayer && physicalMap) physicalMap.removeLayer(physicalDraftLayer)
+  if (physicalGridLayer && physicalMap) physicalMap.removeLayer(physicalGridLayer)
+  physicalDraftLayer = null
+  physicalGridLayer = null
+  physicalGridDragStart = null
+}
+function startPhysicalDrawing() {
+  if (drawMode.value) return
+  const id = createPhysicalId()
+  const today = currentKoreanDate()
+  physicalParcels.value.push({ id, name:'새 물리지번', startParcel:'', endParcel:'', logicalParcel:'미연계', enabled:true, createdAt:today, createdBy:'관리자', updatedAt:today, updatedBy:'관리자', color:'#ED7100', points:[], draft:true })
   selectedPhysicalId.value = id
-  cancelPhysicalDrawing()
+  drawMode.value = true
+  physicalGridSelection.value = null
+  physicalMap?.dragging.disable()
   renderPhysicalPolygons()
+  renderPhysicalGrid()
+}
+function resetPhysicalDrawing() {
+  if (!drawMode.value || !physicalDraftParcel.value) return
+  physicalDraftParcel.value.name = '새 물리지번'
+  physicalDraftParcel.value.enabled = true
+  physicalGridSelection.value = null
+  if (physicalDraftLayer && physicalMap) physicalMap.removeLayer(physicalDraftLayer)
+  physicalDraftLayer = null
+}
+function cancelPhysicalDrawing() {
+  const draftIndex = physicalParcels.value.findIndex(parcel => parcel.draft)
+  if (draftIndex >= 0) physicalParcels.value.splice(draftIndex, 1)
+  drawMode.value = false
+  physicalGridSelection.value = null
+  clearPhysicalDraftLayers()
+  physicalMap?.dragging.enable()
+  selectedPhysicalId.value = physicalParcels.value[0]?.id || ''
+  renderPhysicalPolygons()
+}
+function completePhysicalDrawing() {
+  const draft = physicalDraftParcel.value
+  const selection = physicalGridSelection.value
+  if (!draft || !selection || !draft.name.trim()) return
+  draft.name = draft.name.trim()
+  draft.startParcel = physicalGridAddresses.value.start
+  draft.endParcel = physicalGridAddresses.value.end
+  draft.points = [...selection.points]
+  draft.updatedAt = currentKoreanDate()
+  delete draft.draft
+  drawMode.value = false
+  clearPhysicalDraftLayers()
+  physicalGridSelection.value = null
+  physicalMap?.dragging.enable()
+  renderPhysicalPolygons()
+  selectPhysicalParcel(draft.id)
 }
 function toggleItem(item) {
   displayItems.value = displayItems.value.includes(item)
@@ -458,6 +583,8 @@ function destroyPhysicalMap() {
   physicalVworldLayers = []
   physicalPolygonLayers = []
   physicalDraftLayer = undefined
+  physicalGridLayer = undefined
+  physicalGridDragStart = undefined
 }
 function focusMapObject() {
   const code = searchCode.value.trim().toUpperCase().replace(/\s+/g, '')
@@ -677,14 +804,19 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
 
       <div v-else-if="activeMenu === '물리지번 목록'" class="physical-page">
-        <header class="physical-page-header"><div><h1>물리지번 목록</h1><p>야드의 실제 공간 영역을 등록하고 표시 순서를 관리합니다.</p></div><div class="physical-actions"><button v-if="!drawMode" class="outline-button" @click="startPhysicalDrawing">＋ 물리지번 추가</button><template v-else><span class="draw-guide">지도에서 영역 꼭짓점을 클릭하세요 · {{ drawPoints.length }}개</span><button class="gray-button" @click="cancelPhysicalDrawing">취소</button><button class="primary-small" :disabled="drawPoints.length < 3" @click="completePhysicalDrawing">영역 완료</button></template></div></header>
+        <header class="physical-page-header"><div><h1>물리지번 목록</h1><p>야드의 실제 공간 영역을 등록하고 표시 순서를 관리합니다.</p></div><div class="physical-actions"><button v-if="!drawMode" class="outline-button" @click="startPhysicalDrawing">＋ 물리지번 추가</button><template v-else><span class="draw-guide">10m × 10m 격자에서 영역을 드래그하세요.</span><button class="gray-button" @click="resetPhysicalDrawing">초기화</button><button class="gray-button" @click="cancelPhysicalDrawing">취소</button></template></div></header>
         <div class="physical-layout">
           <aside class="physical-list-panel">
             <div class="panel-heading"><div><h2>물리지번</h2><span>{{ physicalParcels.length }}개</span></div><small>끌어서 표시 순서를 변경합니다.</small></div>
             <div class="physical-list">
-              <button v-for="(parcel,index) in physicalParcels" :key="parcel.id" draggable="true" :class="{ selected: selectedPhysicalId === parcel.id, dragging: draggingPhysicalIndex === index }" :aria-pressed="selectedPhysicalId === parcel.id" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)" @click="selectPhysicalParcel(parcel.id)">
-                <span class="drag-handle" title="순서 변경">⠿</span><i :style="{ background: parcel.color }"></i><span><strong>{{ parcel.name }}</strong><small>{{ parcel.id }} · {{ parcel.logicalParcel }}</small></span><b :class="{ off: !parcel.enabled }">{{ parcel.enabled ? '사용' : '미사용' }}</b>
-              </button>
+              <template v-for="(parcel,index) in physicalParcels" :key="parcel.id">
+                <div v-if="parcel.draft" class="physical-list-draft selected" draggable="true" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)">
+                  <span class="drag-handle" title="순서 변경">⠿</span><span class="draft-folder" aria-hidden="true">▰</span><label><span class="sr-only">물리지번 명칭</span><input v-model="parcel.name" maxlength="40" placeholder="물리지번 명칭 입력" /></label><b>작성중</b>
+                </div>
+                <button v-else draggable="true" :class="{ selected: selectedPhysicalId === parcel.id, dragging: draggingPhysicalIndex === index }" :aria-pressed="selectedPhysicalId === parcel.id" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)" @click="selectPhysicalParcel(parcel.id)">
+                  <span class="drag-handle" title="순서 변경">⠿</span><i :style="{ background: parcel.color }"></i><span><strong>{{ parcel.name }}</strong><small>{{ parcel.id }} · {{ parcel.logicalParcel }}</small></span><b :class="{ off: !parcel.enabled }">{{ parcel.enabled ? '사용' : '미사용' }}</b>
+                </button>
+              </template>
             </div>
           </aside>
           <section ref="physicalMapContainer" class="physical-map-panel" @wheel.prevent="handleMapWheel">
@@ -700,9 +832,22 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
               <button title="전체화면" aria-label="지도 전체화면 전환" @click="togglePhysicalFullscreen">⛶</button>
             </div>
             <label class="physical-rotation rotation-indicator">회전 <input v-model.number="mapRotation" type="number" min="-180" max="180" step="1" aria-label="지도 회전 각도" @change="applyRotationInput" /><span>°</span></label>
-            <div v-if="drawMode" class="drawing-badge">그리기 모드</div>
+            <div v-if="drawMode" class="drawing-badge">10m × 10m 격자 선택 모드</div>
           </section>
-          <aside class="physical-detail-panel" v-if="selectedPhysicalParcel">
+          <aside v-if="drawMode && physicalDraftParcel" class="physical-detail-panel physical-create-panel">
+            <div class="detail-heading"><span>신규 등록</span><h2>{{ physicalDraftParcel.name || '물리지번 명칭 미입력' }}</h2><small>격자 영역을 지정하면 좌표가 자동 계산됩니다.</small></div>
+            <dl class="physical-create-fields">
+              <div><dt>ID</dt><dd><input :value="physicalDraftParcel.id" readonly aria-label="자동 생성 ID" /></dd></div>
+              <div><dt>시작 지번</dt><dd><input :value="physicalGridAddresses.start" readonly placeholder="영역 지정 필요" aria-label="시작 지번" /></dd></div>
+              <div><dt>끝 지번</dt><dd><input :value="physicalGridAddresses.end" readonly placeholder="영역 지정 필요" aria-label="끝 지번" /></dd></div>
+              <div><dt>사용여부</dt><dd class="physical-radio-group"><label><input v-model="physicalDraftParcel.enabled" type="radio" :value="true" /> 사용</label><label><input v-model="physicalDraftParcel.enabled" type="radio" :value="false" /> 미사용</label></dd></div>
+              <div><dt>생성일자</dt><dd><input :value="physicalDraftParcel.createdAt" readonly aria-label="생성일자" /></dd></div>
+              <div><dt>생성자</dt><dd><input :value="physicalDraftParcel.createdBy" readonly aria-label="생성자" /></dd></div>
+            </dl>
+            <div class="physical-selection-summary" aria-live="polite"><strong v-if="physicalGridSelection">{{ physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1 }} × {{ physicalGridSelection.maxRow - physicalGridSelection.minRow + 1 }}칸 선택</strong><span v-if="physicalGridSelection">실제 크기 {{ (physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1) * 10 }}m × {{ (physicalGridSelection.maxRow - physicalGridSelection.minRow + 1) * 10 }}m</span><span v-else>지도에서 영역을 드래그해주세요.</span></div>
+            <div class="detail-footer"><button class="primary-small" :disabled="!physicalGridSelection || !physicalDraftParcel.name.trim()" @click="completePhysicalDrawing">완료</button></div>
+          </aside>
+          <aside v-else-if="selectedPhysicalParcel" class="physical-detail-panel">
             <div class="detail-heading"><span>상세정보</span><h2>{{ selectedPhysicalParcel.name }}</h2><small>{{ selectedPhysicalParcel.id }}</small></div>
             <dl>
               <div><dt>ID</dt><dd>{{ selectedPhysicalParcel.id }}</dd></div>
