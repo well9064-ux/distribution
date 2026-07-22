@@ -106,11 +106,15 @@ const physicalGridAddresses = computed(() => {
 const physicalGridSelectionStyle = computed(() => {
   if (!physicalGridSelection.value) return {}
   const { minRow, maxRow, minColumn, maxColumn } = physicalGridSelection.value
+  const columns = maxColumn - minColumn + 1
+  const rows = maxRow - minRow + 1
   return {
     left:`${minColumn / PHYSICAL_GRID_COLUMNS * 100}%`,
     top:`${minRow / PHYSICAL_GRID_ROWS * 100}%`,
-    width:`${(maxColumn - minColumn + 1) / PHYSICAL_GRID_COLUMNS * 100}%`,
-    height:`${(maxRow - minRow + 1) / PHYSICAL_GRID_ROWS * 100}%`,
+    width:`${columns / PHYSICAL_GRID_COLUMNS * 100}%`,
+    height:`${rows / PHYSICAL_GRID_ROWS * 100}%`,
+    '--selection-columns':`${columns}`,
+    '--selection-rows':`${rows}`,
   }
 })
 
