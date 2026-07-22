@@ -34,6 +34,16 @@ const vworldReady = ref(false)
 const vworldKey = import.meta.env.VITE_VWORLD_API_KEY || ''
 let vworldMap
 let vworldLayers = []
+const showSplitMapDialog = ref(false)
+const selectedSplitParcelId = ref('')
+const splitMapButtonElement = ref(null)
+const splitMapDialogElement = ref(null)
+const splitMaps = ref([])
+const selectableSplitParcels = computed(() => physicalParcels.value.filter(parcel => !splitMaps.value.some(map => map.parcelId === parcel.id)))
+const splitMapElements = new Map()
+const splitLeafletMaps = new Map()
+const splitLeafletLayers = new Map()
+let splitMapSequence = 0
 const searchCode = ref('')
 const focusedCode = ref('')
 const searchMessage = ref('')
@@ -231,11 +241,107 @@ function initializeVworldMap() {
   vworldMap = L.map(vworldMapElement.value, { zoomControl: false, attributionControl: true }).setView([34.9012707, 127.593559], 16)
   setVworldLayer()
 }
+async function openSplitMapDialog() {
+  selectedSplitParcelId.value = selectableSplitParcels.value[0]?.id || ''
+  showSplitMapDialog.value = true
+  await nextTick()
+  splitMapDialogElement.value?.focus()
+}
+async function closeSplitMapDialog() {
+  showSplitMapDialog.value = false
+  await nextTick()
+  splitMapButtonElement.value?.focus()
+}
+function addSplitMap() {
+  if (!selectedSplitParcelId.value) return
+  splitMaps.value.push({
+    id: `split-map-${++splitMapSequence}`,
+    parcelId: selectedSplitParcelId.value,
+    mapType: 'Satellite',
+    zoom: 1,
+    rotation: 0,
+  })
+  closeSplitMapDialog()
+}
+function setSplitMapElement(id, element) {
+  if (!element) {
+    splitMapElements.delete(id)
+    return
+  }
+  splitMapElements.set(id, element)
+  const item = splitMaps.value.find(map => map.id === id)
+  if (item) initializeSplitMap(item)
+}
+function initializeSplitMap(item) {
+  const element = splitMapElements.get(item.id)
+  const parcel = physicalParcels.value.find(parcelItem => parcelItem.id === item.parcelId)
+  if (!element || !parcel || splitLeafletMaps.has(item.id)) return
+  const map = L.map(element, { zoomControl:false, attributionControl:true })
+  splitLeafletMaps.set(item.id, map)
+  refreshSplitMapLayers(item)
+  map.fitBounds(parcel.points, { padding:[28,28], maxZoom:18 })
+  setTimeout(() => {
+    map.invalidateSize()
+    map.fitBounds(parcel.points, { padding:[28,28], maxZoom:18 })
+  }, 100)
+}
+function refreshSplitMapLayers(item) {
+  const map = splitLeafletMaps.get(item.id)
+  const parcel = physicalParcels.value.find(parcelItem => parcelItem.id === item.parcelId)
+  if (!map || !parcel) return
+  ;(splitLeafletLayers.get(item.id) || []).forEach(layer => map.removeLayer(layer))
+  const layers = []
+  const baseLayers = item.mapType === 'Hybrid' ? ['Satellite','Hybrid'] : [item.mapType]
+  baseLayers.forEach(layerName => {
+    layers.push(L.tileLayer(vworldTileUrl(layerName), { minZoom:6, maxZoom:19, attribution:'&copy; VWorld 공간정보 오픈플랫폼' }).addTo(map))
+  })
+  layers.push(L.polygon(parcel.points, { color:parcel.color, weight:4, fillColor:parcel.color, fillOpacity:parcel.enabled ? .24 : .08, dashArray:parcel.enabled ? undefined : '5 5' }).addTo(map))
+  splitLeafletLayers.set(item.id, layers)
+}
+function setSplitMapType(item, type) {
+  item.mapType = type
+  refreshSplitMapLayers(item)
+}
+function zoomSplitMap(item, delta) {
+  item.zoom = Math.min(2, Math.max(.75, Number((item.zoom + delta).toFixed(2))))
+}
+function rotateSplitMap(item, direction) {
+  let next = item.rotation + (15 * direction)
+  if (next > 180) next -= 360
+  if (next <= -180) next += 360
+  item.rotation = next
+}
+function resetSplitMap(item) {
+  item.zoom = 1
+  item.rotation = 0
+  const parcel = physicalParcels.value.find(parcelItem => parcelItem.id === item.parcelId)
+  if (parcel) splitLeafletMaps.get(item.id)?.fitBounds(parcel.points, { padding:[28,28], maxZoom:18 })
+}
+async function toggleSplitMapFullscreen(item) {
+  const container = document.getElementById(`${item.id}-window`)
+  if (!document.fullscreenElement) await container?.requestFullscreen()
+  else await document.exitFullscreen()
+  setTimeout(() => splitLeafletMaps.get(item.id)?.invalidateSize(), 100)
+}
+function destroySplitMap(id) {
+  splitLeafletMaps.get(id)?.remove()
+  splitLeafletMaps.delete(id)
+  splitLeafletLayers.delete(id)
+  splitMapElements.delete(id)
+}
+function removeSplitMap(id) {
+  destroySplitMap(id)
+  splitMaps.value = splitMaps.value.filter(map => map.id !== id)
+}
+function destroyAllSplitMaps() {
+  splitMaps.value.forEach(item => destroySplitMap(item.id))
+}
 function destroyVworldMap() {
   vworldMap?.remove()
   vworldMap = undefined
   vworldLayers = []
   vworldReady.value = false
+  destroyAllSplitMaps()
 }
 function destroyPhysicalMap() {
   physicalMap?.remove()
@@ -407,9 +513,45 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
                 <button title="왼쪽으로 15도 회전" aria-label="지도 반시계 방향 15도 회전" @click="rotateMap(-1)">↺</button>
                 <button title="오른쪽으로 15도 회전" aria-label="지도 시계 방향 15도 회전" @click="rotateMap(1)">↻</button>
                 <button title="원위치" aria-label="지도 보기 원위치" @click="resetMapView">⌂</button>
+                <button ref="splitMapButtonElement" title="화면분할" aria-label="화면분할 서브 지도 추가" @click="openSplitMapDialog">▦</button>
                 <button title="전체화면" aria-label="지도 전체화면 전환" @click="toggleFullscreen">⛶</button>
               </div>
               <label class="rotation-indicator">회전 <input v-model.number="mapRotation" type="number" min="-180" max="180" step="1" aria-label="지도 회전 각도" @change="applyRotationInput" /><span>°</span></label>
+              <div v-if="showSplitMapDialog" class="split-map-dialog-backdrop" role="presentation" @click.self="closeSplitMapDialog" @keydown.esc="closeSplitMapDialog">
+                <section ref="splitMapDialogElement" class="split-map-dialog" role="dialog" aria-modal="true" aria-labelledby="split-map-dialog-title" tabindex="-1">
+                  <header><div><span>화면분할</span><h2 id="split-map-dialog-title">추가할 서브 MAP 선택</h2></div><button type="button" aria-label="서브 지도 선택 닫기" @click="closeSplitMapDialog">×</button></header>
+                  <div class="split-map-dialog-body">
+                    <label for="split-parcel-select">물리지번 목록</label>
+                    <select id="split-parcel-select" v-model="selectedSplitParcelId" :disabled="!selectableSplitParcels.length">
+                      <option value="" disabled>물리지번을 선택하세요</option>
+                      <option v-for="parcel in selectableSplitParcels" :key="parcel.id" :value="parcel.id">{{ parcel.name }} · {{ parcel.id }}</option>
+                    </select>
+                    <p v-if="!selectableSplitParcels.length">등록된 모든 물리지번이 서브 지도에 열려 있습니다.</p>
+                  </div>
+                  <footer><button type="button" class="gray-button" @click="closeSplitMapDialog">취소</button><button type="button" class="primary-small" :disabled="!selectedSplitParcelId" @click="addSplitMap">서브 MAP 추가</button></footer>
+                </section>
+              </div>
+              <div v-if="splitMaps.length" class="split-map-windows" aria-label="서브 지도 목록">
+                <section v-for="subMap in splitMaps" :id="`${subMap.id}-window`" :key="subMap.id" class="split-map-window" :aria-label="`${physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name} 서브 지도`">
+                  <header><div><span>{{ subMap.parcelId }}</span><strong>{{ physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name }}</strong></div><button type="button" aria-label="서브 지도 닫기" @click="removeSplitMap(subMap.id)">×</button></header>
+                  <div class="split-map-type segmented" aria-label="서브 지도 유형">
+                    <button v-for="type in mapTypes" :key="type.value" :class="{ selected: subMap.mapType === type.value }" @click="setSplitMapType(subMap, type.value)">{{ type.label }}</button>
+                  </div>
+                  <div class="split-map-canvas" @wheel.stop.prevent="zoomSplitMap(subMap, $event.deltaY < 0 ? .05 : -.05)">
+                    <div :ref="element => setSplitMapElement(subMap.id, element)" class="split-map-leaflet" :style="{ transform: `scale(${subMap.zoom}) rotate(${subMap.rotation}deg)` }"></div>
+                    <div class="split-map-controls map-view-controls" aria-label="서브 지도 보기 제어">
+                      <button aria-label="서브 지도 확대" :disabled="subMap.zoom >= 2" @click="zoomSplitMap(subMap, .25)">＋</button>
+                      <span>{{ Math.round(subMap.zoom * 100) }}%</span>
+                      <button aria-label="서브 지도 축소" :disabled="subMap.zoom <= .75" @click="zoomSplitMap(subMap, -.25)">−</button>
+                      <button aria-label="서브 지도 반시계 방향 회전" @click="rotateSplitMap(subMap, -1)">↺</button>
+                      <button aria-label="서브 지도 시계 방향 회전" @click="rotateSplitMap(subMap, 1)">↻</button>
+                      <button aria-label="서브 지도 원위치" @click="resetSplitMap(subMap)">⌂</button>
+                      <button aria-label="서브 지도 전체화면 전환" @click="toggleSplitMapFullscreen(subMap)">⛶</button>
+                    </div>
+                    <span class="split-map-rotation">회전 {{ subMap.rotation }}°</span>
+                  </div>
+                </section>
+              </div>
               <aside v-if="selectedObject" class="object-detail" aria-live="polite">
                 <header><div><span>{{ selectedObject.type }}</span><h3>{{ selectedObject.title }} 상세정보</h3></div><button type="button" aria-label="상세정보 닫기" @click="selectedObject = null">×</button></header>
                 <dl><div v-for="row in selectedObject.rows" :key="row[0]"><dt>{{ row[0] }}</dt><dd :class="{ status: row[0] === '현재상태' }">{{ row[1] }}</dd></div></dl>
