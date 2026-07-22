@@ -107,21 +107,6 @@ const physicalGridAddresses = computed(() => {
   const { minRow, maxRow, minColumn, maxColumn } = physicalGridSelection.value
   return { start:'(0,0)', end:`(${maxColumn - minColumn},${maxRow - minRow})` }
 })
-const physicalGridSelectionStyle = computed(() => {
-  if (!physicalGridSelection.value) return {}
-  const { minRow, maxRow, minColumn, maxColumn } = physicalGridSelection.value
-  const columns = maxColumn - minColumn + 1
-  const rows = maxRow - minRow + 1
-  return {
-    left:`${minColumn / PHYSICAL_GRID_COLUMNS * 100}%`,
-    top:`${minRow / PHYSICAL_GRID_ROWS * 100}%`,
-    width:`${columns / PHYSICAL_GRID_COLUMNS * 100}%`,
-    height:`${rows / PHYSICAL_GRID_ROWS * 100}%`,
-    '--selection-columns':`${columns}`,
-    '--selection-rows':`${rows}`,
-  }
-})
-
 const now = computed(() => new Intl.DateTimeFormat('ko-KR', {
   year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short'
 }).format(new Date()))
@@ -211,12 +196,9 @@ function renderPhysicalPolygons() {
     return
   }
   const selectedParcel = physicalParcels.value.find(parcel => parcel.id === selectedPhysicalId.value)
-  physicalPolygonLayers = selectedParcel?.points?.length ? [selectedParcel].map(parcel => {
-    const layer = L.polygon(parcel.points, { color:parcel.color, weight:4, fillColor:parcel.color, fillOpacity:parcel.enabled ? .24 : .08, dashArray:parcel.enabled ? undefined : '5 5' }).addTo(physicalMap)
-    layer.bindTooltip(`${parcel.id} · ${parcel.name}`, { permanent:true, direction:'center', className:'parcel-map-label' })
-    layer.on('click', () => selectPhysicalParcel(parcel.id))
-    return layer
-  }) : []
+  physicalPolygonLayers = selectedParcel?.points?.length
+    ? [createParcelGridLayer(physicalMap, selectedParcel, { onClick:() => selectPhysicalParcel(selectedParcel.id) })]
+    : []
 }
 function selectPhysicalParcel(id) {
   selectedPhysicalId.value = id
@@ -244,10 +226,16 @@ function currentKoreanDate() {
   return new Intl.DateTimeFormat('sv-SE', { timeZone:'Asia/Seoul' }).format(new Date())
 }
 function physicalGridCellFromPointer(event) {
-  const bounds = physicalGridInteractionElement.value?.getBoundingClientRect()
-  if (!bounds) return { row:0, column:0 }
-  const column = Math.floor((event.clientX - bounds.left) / bounds.width * PHYSICAL_GRID_COLUMNS)
-  const row = Math.floor((event.clientY - bounds.top) / bounds.height * PHYSICAL_GRID_ROWS)
+  const bounds = physicalMapElement.value?.getBoundingClientRect()
+  if (!bounds || !physicalMap) return { row:0, column:0 }
+  const point = physicalMap.containerPointToLatLng([event.clientX - bounds.left,event.clientY - bounds.top])
+  const eastMeters = (point.lng - PHYSICAL_GRID_CENTER[1]) * METERS_PER_LONGITUDE_DEGREE
+  const southMeters = (PHYSICAL_GRID_CENTER[0] - point.lat) * METERS_PER_LATITUDE_DEGREE
+  const angle = mapRotation.value * Math.PI / 180
+  const horizontalMeters = Math.cos(angle) * eastMeters - Math.sin(angle) * southMeters
+  const verticalMeters = Math.sin(angle) * eastMeters + Math.cos(angle) * southMeters
+  const column = Math.floor((horizontalMeters + PHYSICAL_GRID_COLUMNS * PHYSICAL_GRID_CELL_METERS / 2) / PHYSICAL_GRID_CELL_METERS)
+  const row = Math.floor((verticalMeters + PHYSICAL_GRID_ROWS * PHYSICAL_GRID_CELL_METERS / 2) / PHYSICAL_GRID_CELL_METERS)
   return {
     row:Math.min(PHYSICAL_GRID_ROWS - 1, Math.max(0, row)),
     column:Math.min(PHYSICAL_GRID_COLUMNS - 1, Math.max(0, column)),
@@ -263,6 +251,49 @@ function physicalGridPoint(row, column) {
     PHYSICAL_GRID_CENTER[0] - southMeters / METERS_PER_LATITUDE_DEGREE,
     PHYSICAL_GRID_CENTER[1] + eastMeters / METERS_PER_LONGITUDE_DEGREE,
   ]
+}
+function interpolatePoint(start, end, ratio) {
+  return [start[0] + (end[0] - start[0]) * ratio,start[1] + (end[1] - start[1]) * ratio]
+}
+function parcelGridSize(map, parcel) {
+  const [topLeft,topRight,,bottomLeft] = parcel.points
+  return {
+    columns:parcel.gridColumns || Math.max(1,Math.min(100,Math.round(map.distance(topLeft,topRight) / PHYSICAL_GRID_CELL_METERS))),
+    rows:parcel.gridRows || Math.max(1,Math.min(100,Math.round(map.distance(topLeft,bottomLeft) / PHYSICAL_GRID_CELL_METERS))),
+  }
+}
+function createParcelGridLayer(map, parcel, { onClick, draft = false } = {}) {
+  const [topLeft,topRight,bottomRight,bottomLeft] = parcel.points
+  const { columns,rows } = parcelGridSize(map,parcel)
+  const color = parcel.color || '#ED7100'
+  const group = L.layerGroup().addTo(map)
+  const polygon = L.polygon(parcel.points, {
+    color,weight:draft ? 3 : 4,fillColor:color,fillOpacity:parcel.enabled === false ? .08 : .2,
+    dashArray:parcel.enabled === false ? '5 5' : undefined,
+  }).addTo(group)
+  for (let column = 1; column < columns; column += 1) {
+    const ratio = column / columns
+    L.polyline([interpolatePoint(topLeft,topRight,ratio),interpolatePoint(bottomLeft,bottomRight,ratio)], { color,weight:1,opacity:.72,interactive:false }).addTo(group)
+  }
+  for (let row = 1; row < rows; row += 1) {
+    const ratio = row / rows
+    L.polyline([interpolatePoint(topLeft,bottomLeft,ratio),interpolatePoint(topRight,bottomRight,ratio)], { color,weight:1,opacity:.72,interactive:false }).addTo(group)
+  }
+  if (!draft) polygon.bindTooltip(`${parcel.id} · ${parcel.name}`, { permanent:true,direction:'center',className:'parcel-map-label' })
+  if (onClick) polygon.on('click',onClick)
+  return group
+}
+function renderPhysicalDraftGrid() {
+  if (physicalDraftLayer && physicalMap) physicalMap.removeLayer(physicalDraftLayer)
+  physicalDraftLayer = null
+  if (!physicalMap || !physicalGridSelection.value) return
+  const selection = physicalGridSelection.value
+  physicalDraftLayer = createParcelGridLayer(physicalMap, {
+    points:selection.points,
+    gridColumns:selection.maxColumn - selection.minColumn + 1,
+    gridRows:selection.maxRow - selection.minRow + 1,
+    color:'#ED7100',enabled:true,
+  }, { draft:true })
 }
 function renderPhysicalGrid() {
   if (!physicalMap) return
@@ -283,6 +314,7 @@ function setPhysicalGridSelection(start, end) {
     physicalGridPoint(maxRow + 1,minColumn),
   ]
   physicalGridSelection.value = { minRow, maxRow, minColumn, maxColumn, points }
+  renderPhysicalDraftGrid()
 }
 function startPhysicalGridSelection(event) {
   if (!drawMode.value || event.button !== 0) return
@@ -354,6 +386,8 @@ function completePhysicalDrawing() {
   draft.startParcel = physicalGridAddresses.value.start
   draft.endParcel = physicalGridAddresses.value.end
   draft.points = [...selection.points]
+  draft.gridColumns = selection.maxColumn - selection.minColumn + 1
+  draft.gridRows = selection.maxRow - selection.minRow + 1
   draft.updatedAt = currentKoreanDate()
   delete draft.draft
   drawMode.value = false
@@ -494,7 +528,7 @@ function refreshSplitMapLayers(item) {
   baseLayers.forEach(layerName => {
     layers.push(L.tileLayer(vworldTileUrl(layerName), { minZoom:6, maxZoom:19, attribution:'&copy; VWorld 공간정보 오픈플랫폼' }).addTo(map))
   })
-  layers.push(L.polygon(parcel.points, { color:parcel.color, weight:4, fillColor:parcel.color, fillOpacity:parcel.enabled ? .24 : .08, dashArray:parcel.enabled ? undefined : '5 5' }).addTo(map))
+  layers.push(createParcelGridLayer(map,parcel))
   splitLeafletLayers.set(item.id, layers)
 }
 function setSplitMapType(item, type) {
@@ -894,7 +928,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
           <section ref="physicalMapContainer" class="physical-map-panel" @wheel.prevent="handleMapWheel" @contextmenu="clearPhysicalGridSelection">
             <div ref="physicalMapElement" class="physical-map"></div>
             <div v-if="drawMode" ref="physicalGridInteractionElement" class="physical-grid-interaction" aria-label="10m 단위 물리지번 영역 선택" @wheel.prevent="handleMapWheel" @pointerdown="startPhysicalGridSelection" @pointermove="updatePhysicalGridSelection" @pointerup="finishPhysicalGridSelection">
-              <div v-if="physicalGridSelection" class="physical-grid-selection-box" :style="physicalGridSelectionStyle"><span>{{ physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1 }} × {{ physicalGridSelection.maxRow - physicalGridSelection.minRow + 1 }}칸</span></div>
+              <span v-if="physicalGridSelection" class="sr-only" aria-live="polite">{{ physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1 }} × {{ physicalGridSelection.maxRow - physicalGridSelection.minRow + 1 }}칸 선택</span>
             </div>
             <div class="physical-map-types segmented" aria-label="지도 유형"><button v-for="type in mapTypes" :key="type.value" :class="{ selected: mapType === type.value }" @click="mapType = type.value">{{ type.label }}</button></div>
             <div class="physical-map-controls map-view-controls" aria-label="지도 보기 제어">
