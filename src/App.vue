@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { KeyRound, UserRound } from '@lucide/vue'
+import { Box, Home, KeyRound, LayoutDashboard, LogOut, MapPin, Package, Settings, Truck, UserRound } from '@lucide/vue'
 
 const loggedIn = ref(false)
 const collapsed = ref(false)
@@ -62,12 +62,12 @@ const objectDetails = {
 }
 
 const menus = [
-  { label: '대시보드', icon: '▦' },
-  { label: '지번관리', icon: '⌖' },
-  { label: '입고예정정보', icon: '⇥' },
-  { label: '블록관리', icon: '⬡' },
-  { label: '운송수단관리', icon: '▰' },
-  { label: '시스템관리', icon: '⚙' },
+  { label: '대시보드', icon: LayoutDashboard },
+  { label: '지번관리', icon: MapPin },
+  { label: '자재관리', icon: Package },
+  { label: '블록관리', icon: Box },
+  { label: '운송수단관리', icon: Truck },
+  { label: '시스템관리', icon: Settings },
 ]
 const landSubmenus = ['물리지번 목록', '논리지번 목록', '지번 목록', '활용계획']
 const landMenuOpen = ref(false)
@@ -561,8 +561,8 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
       <nav class="menu-list" aria-label="주 메뉴">
         <template v-for="menu in menus" :key="menu.label">
-          <button :class="{ active: activeMenu === menu.label }" :title="collapsed ? menu.label : undefined" @click="selectMenu(menu.label)">
-            <span class="menu-icon">{{ menu.icon }}</span><span v-if="!collapsed">{{ menu.label }}</span><span v-if="menu.label === '지번관리' && !collapsed" class="submenu-arrow">{{ landMenuOpen ? '⌃' : '⌄' }}</span>
+          <button :class="{ active: activeMenu === menu.label }" :title="collapsed ? menu.label : undefined" :aria-label="menu.label" @click="selectMenu(menu.label)">
+            <component :is="menu.icon" class="menu-icon" aria-hidden="true" /><span v-if="!collapsed">{{ menu.label }}</span><span v-if="menu.label === '지번관리' && !collapsed" class="submenu-arrow">{{ landMenuOpen ? '⌃' : '⌄' }}</span>
           </button>
           <div v-if="menu.label === '지번관리' && landMenuOpen && !collapsed" class="submenu-list">
             <button v-for="submenu in landSubmenus" :key="submenu" :class="{ active: activeMenu === submenu }" @click.stop="selectLandSubmenu(submenu)">{{ submenu }}</button>
@@ -572,14 +572,14 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       <div class="sidebar-footer">
         <div class="avatar">관</div>
         <div v-if="!collapsed"><strong>관리자</strong><small>시스템 관리자</small></div>
-        <button v-if="!collapsed" class="logout" @click="loggedIn = false" aria-label="로그아웃">↪</button>
+        <button v-if="!collapsed" class="logout" @click="loggedIn = false" aria-label="로그아웃"><LogOut aria-hidden="true" /></button>
       </div>
     </aside>
 
     <main class="workspace">
       <header class="topbar">
-        <div><span class="home-icon">◆</span><span>›</span><strong>{{ activeMenu }}</strong></div>
-        <div class="topbar-meta"><span>{{ now }}</span><button aria-label="알림">♢<i></i></button><span class="user-chip">관</span><strong>관리자</strong></div>
+        <div><Home class="home-icon" aria-hidden="true" /><span>›</span><strong>{{ activeMenu }}</strong></div>
+        <div class="topbar-meta"><span>{{ now }}</span><button class="topbar-logout" aria-label="로그아웃" @click="loggedIn = false"><LogOut aria-hidden="true" /></button><span class="user-chip">관</span><strong>관리자</strong></div>
       </header>
 
       <div v-if="activeMenu === '대시보드'" class="dashboard">
