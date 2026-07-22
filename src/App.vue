@@ -195,7 +195,7 @@ function bindNativeMapView(map) {
 }
 function initializePhysicalMap() {
   if (!physicalMapElement.value || physicalMap) return
-  physicalMap = createVworldLeafletMap(physicalMapElement.value, true)
+  physicalMap = createVworldLeafletMap(physicalMapElement.value)
   bindNativeMapView(physicalMap)
   physicalMap.on('click',handlePhysicalMapClick)
   physicalMap.on('mousemove',handlePhysicalMapMouseMove)
