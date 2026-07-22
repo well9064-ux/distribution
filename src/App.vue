@@ -130,12 +130,13 @@ async function togglePhysicalFullscreen() {
 function renderPhysicalPolygons() {
   if (!physicalMap) return
   physicalPolygonLayers.forEach(layer => physicalMap.removeLayer(layer))
-  physicalPolygonLayers = physicalParcels.value.map(parcel => {
-    const layer = L.polygon(parcel.points, { color:parcel.color, weight:selectedPhysicalId.value === parcel.id ? 4 : 2, fillColor:parcel.color, fillOpacity:parcel.enabled ? .24 : .08, dashArray:parcel.enabled ? undefined : '5 5' }).addTo(physicalMap)
+  const selectedParcel = physicalParcels.value.find(parcel => parcel.id === selectedPhysicalId.value)
+  physicalPolygonLayers = selectedParcel ? [selectedParcel].map(parcel => {
+    const layer = L.polygon(parcel.points, { color:parcel.color, weight:4, fillColor:parcel.color, fillOpacity:parcel.enabled ? .24 : .08, dashArray:parcel.enabled ? undefined : '5 5' }).addTo(physicalMap)
     layer.bindTooltip(`${parcel.id} · ${parcel.name}`, { permanent:true, direction:'center', className:'parcel-map-label' })
     layer.on('click', () => selectPhysicalParcel(parcel.id))
     return layer
-  })
+  }) : []
 }
 function selectPhysicalParcel(id) {
   selectedPhysicalId.value = id
@@ -428,7 +429,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
           <aside class="physical-list-panel">
             <div class="panel-heading"><div><h2>물리지번</h2><span>{{ physicalParcels.length }}개</span></div><small>끌어서 표시 순서를 변경합니다.</small></div>
             <div class="physical-list">
-              <button v-for="(parcel,index) in physicalParcels" :key="parcel.id" draggable="true" :class="{ selected: selectedPhysicalId === parcel.id, dragging: draggingPhysicalIndex === index }" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)" @click="selectPhysicalParcel(parcel.id)">
+              <button v-for="(parcel,index) in physicalParcels" :key="parcel.id" draggable="true" :class="{ selected: selectedPhysicalId === parcel.id, dragging: draggingPhysicalIndex === index }" :aria-pressed="selectedPhysicalId === parcel.id" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)" @click="selectPhysicalParcel(parcel.id)">
                 <span class="drag-handle" title="순서 변경">⠿</span><i :style="{ background: parcel.color }"></i><span><strong>{{ parcel.name }}</strong><small>{{ parcel.id }} · {{ parcel.logicalParcel }}</small></span><b :class="{ off: !parcel.enabled }">{{ parcel.enabled ? '사용' : '미사용' }}</b>
               </button>
             </div>
