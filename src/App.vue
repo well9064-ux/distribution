@@ -88,8 +88,6 @@ let physicalDraftLayer
 let physicalGridLayer
 let physicalGridDragStart
 let physicalPolygonLayers = []
-const PHYSICAL_GRID_ROWS = 30
-const PHYSICAL_GRID_COLUMNS = 40
 const PHYSICAL_GRID_CENTER = [34.9012707,127.593559]
 const PHYSICAL_GRID_CELL_METERS = 10
 const METERS_PER_LATITUDE_DEGREE = 111320
@@ -225,25 +223,18 @@ function createPhysicalId() {
 function currentKoreanDate() {
   return new Intl.DateTimeFormat('sv-SE', { timeZone:'Asia/Seoul' }).format(new Date())
 }
-function physicalGridCellFromPointer(event) {
+function physicalGridMetersFromPointer(event) {
   const bounds = physicalMapElement.value?.getBoundingClientRect()
-  if (!bounds || !physicalMap) return { row:0, column:0 }
+  if (!bounds || !physicalMap) return { horizontal:0,vertical:0 }
   const point = physicalMap.containerPointToLatLng([event.clientX - bounds.left,event.clientY - bounds.top])
   const eastMeters = (point.lng - PHYSICAL_GRID_CENTER[1]) * METERS_PER_LONGITUDE_DEGREE
   const southMeters = (PHYSICAL_GRID_CENTER[0] - point.lat) * METERS_PER_LATITUDE_DEGREE
   const angle = mapRotation.value * Math.PI / 180
   const horizontalMeters = Math.cos(angle) * eastMeters - Math.sin(angle) * southMeters
   const verticalMeters = Math.sin(angle) * eastMeters + Math.cos(angle) * southMeters
-  const column = Math.floor((horizontalMeters + PHYSICAL_GRID_COLUMNS * PHYSICAL_GRID_CELL_METERS / 2) / PHYSICAL_GRID_CELL_METERS)
-  const row = Math.floor((verticalMeters + PHYSICAL_GRID_ROWS * PHYSICAL_GRID_CELL_METERS / 2) / PHYSICAL_GRID_CELL_METERS)
-  return {
-    row:Math.min(PHYSICAL_GRID_ROWS - 1, Math.max(0, row)),
-    column:Math.min(PHYSICAL_GRID_COLUMNS - 1, Math.max(0, column)),
-  }
+  return { horizontal:horizontalMeters,vertical:verticalMeters }
 }
-function physicalGridPoint(row, column) {
-  const horizontalMeters = column * PHYSICAL_GRID_CELL_METERS - PHYSICAL_GRID_COLUMNS * PHYSICAL_GRID_CELL_METERS / 2
-  const verticalMeters = row * PHYSICAL_GRID_CELL_METERS - PHYSICAL_GRID_ROWS * PHYSICAL_GRID_CELL_METERS / 2
+function physicalGridPointFromMeters(horizontalMeters, verticalMeters) {
   const angle = mapRotation.value * Math.PI / 180
   const eastMeters = Math.cos(angle) * horizontalMeters + Math.sin(angle) * verticalMeters
   const southMeters = -Math.sin(angle) * horizontalMeters + Math.cos(angle) * verticalMeters
@@ -299,28 +290,28 @@ function renderPhysicalGrid() {
   if (!physicalMap) return
   if (physicalGridLayer) physicalMap.removeLayer(physicalGridLayer)
   physicalGridLayer = null
-  const corners = [physicalGridPoint(0,0),physicalGridPoint(0,PHYSICAL_GRID_COLUMNS),physicalGridPoint(PHYSICAL_GRID_ROWS,PHYSICAL_GRID_COLUMNS),physicalGridPoint(PHYSICAL_GRID_ROWS,0)]
-  physicalMap.fitBounds(L.latLngBounds(corners), { padding:[30,30], maxZoom:18 })
 }
 function setPhysicalGridSelection(start, end) {
-  const minRow = Math.min(start.row, end.row)
-  const maxRow = Math.max(start.row, end.row)
-  const minColumn = Math.min(start.column, end.column)
-  const maxColumn = Math.max(start.column, end.column)
+  const columns = Math.max(1,Math.ceil(Math.abs(end.horizontal - start.horizontal) / PHYSICAL_GRID_CELL_METERS))
+  const rows = Math.max(1,Math.ceil(Math.abs(end.vertical - start.vertical) / PHYSICAL_GRID_CELL_METERS))
+  const left = end.horizontal >= start.horizontal ? start.horizontal : start.horizontal - columns * PHYSICAL_GRID_CELL_METERS
+  const right = left + columns * PHYSICAL_GRID_CELL_METERS
+  const top = end.vertical >= start.vertical ? start.vertical : start.vertical - rows * PHYSICAL_GRID_CELL_METERS
+  const bottom = top + rows * PHYSICAL_GRID_CELL_METERS
   const points = [
-    physicalGridPoint(minRow,minColumn),
-    physicalGridPoint(minRow,maxColumn + 1),
-    physicalGridPoint(maxRow + 1,maxColumn + 1),
-    physicalGridPoint(maxRow + 1,minColumn),
+    physicalGridPointFromMeters(left,top),
+    physicalGridPointFromMeters(right,top),
+    physicalGridPointFromMeters(right,bottom),
+    physicalGridPointFromMeters(left,bottom),
   ]
-  physicalGridSelection.value = { minRow, maxRow, minColumn, maxColumn, points }
+  physicalGridSelection.value = { minRow:0,maxRow:rows - 1,minColumn:0,maxColumn:columns - 1,points }
   renderPhysicalDraftGrid()
 }
 function startPhysicalGridSelection(event) {
   if (!drawMode.value || event.button !== 0) return
   event.preventDefault()
   event.currentTarget.setPointerCapture?.(event.pointerId)
-  physicalGridDragStart = physicalGridCellFromPointer(event)
+  physicalGridDragStart = physicalGridMetersFromPointer(event)
   setPhysicalGridSelection(physicalGridDragStart, physicalGridDragStart)
 }
 function clearPhysicalGridSelection(event) {
@@ -333,11 +324,11 @@ function clearPhysicalGridSelection(event) {
 }
 function updatePhysicalGridSelection(event) {
   if (!drawMode.value || !physicalGridDragStart) return
-  setPhysicalGridSelection(physicalGridDragStart, physicalGridCellFromPointer(event))
+  setPhysicalGridSelection(physicalGridDragStart, physicalGridMetersFromPointer(event))
 }
 function finishPhysicalGridSelection(event) {
   if (!drawMode.value || !physicalGridDragStart) return
-  setPhysicalGridSelection(physicalGridDragStart, physicalGridCellFromPointer(event))
+  setPhysicalGridSelection(physicalGridDragStart, physicalGridMetersFromPointer(event))
   event.currentTarget.releasePointerCapture?.(event.pointerId)
   physicalGridDragStart = null
 }
