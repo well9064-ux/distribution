@@ -35,7 +35,7 @@
 .physical-list small { display: block; margin-top: 5px; color: #999; font-size: 9px; }
 .physical-list>button>b { padding: 3px 6px; border-radius: 999px; background: #e6fbd5; color: #289920; font-size: 9px; }
 .physical-list>button>b.off { background: #f0f0f0; color: #717171; }
-.physical-map-panel { position: relative; min-width: 0; background: #e4e4e4; }
+.physical-map-panel { position: relative; min-width: 0; overflow: hidden; isolation: isolate; background: #e4e4e4; }
 .physical-map { position: absolute; inset: -70%; width: 240%; height: 240%; transform-origin: center; transition: transform 220ms ease; }
 .physical-map-types { position: absolute; z-index: 520; top: 14px; right: 14px; box-shadow: 0 2px 8px rgba(54,59,64,.16); }
 .physical-map-controls { z-index: 520; }

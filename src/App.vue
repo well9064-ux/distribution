@@ -230,6 +230,19 @@ function initializeVworldMap() {
   vworldMap = L.map(vworldMapElement.value, { zoomControl: false, attributionControl: true }).setView([34.9012707, 127.593559], 16)
   setVworldLayer()
 }
+function destroyVworldMap() {
+  vworldMap?.remove()
+  vworldMap = undefined
+  vworldLayers = []
+  vworldReady.value = false
+}
+function destroyPhysicalMap() {
+  physicalMap?.remove()
+  physicalMap = undefined
+  physicalVworldLayers = []
+  physicalPolygonLayers = []
+  physicalDraftLayer = undefined
+}
 function focusMapObject() {
   const code = searchCode.value.trim().toUpperCase().replace(/\s+/g, '')
   const objects = {
@@ -262,10 +275,18 @@ function showObjectDetails(code) {
   focusedCode.value = code
 }
 watch(mapType, () => { setVworldLayer(); setPhysicalVworldLayer() })
+watch(activeMenu, async (menu, previousMenu) => {
+  if (previousMenu === '대시보드' && menu !== '대시보드') destroyVworldMap()
+  if (previousMenu === '물리지번 목록' && menu !== '물리지번 목록') destroyPhysicalMap()
+
+  await nextTick()
+  if (menu === '대시보드') initializeVworldMap()
+  if (menu === '물리지번 목록') initializePhysicalMap()
+})
 watch([mapZoom, mapRotation], ([zoom, rotation]) => {
   localStorage.setItem('hanwha-map-view', JSON.stringify({ zoom, rotation }))
 })
-onBeforeUnmount(() => { vworldMap?.remove(); physicalMap?.remove() })
+onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
 </script>
 
 <template>
