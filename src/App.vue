@@ -261,6 +261,10 @@ function addSplitMap() {
     mapType: 'Satellite',
     zoom: 1,
     rotation: 0,
+    left: null,
+    top: null,
+    width: null,
+    height: null,
   })
   closeSplitMapDialog()
 }
@@ -285,7 +289,10 @@ function initializeSplitMap(item) {
     map.invalidateSize()
     map.fitBounds(parcel.points, { padding:[28,28], maxZoom:18 })
   }, 100)
-  const resizeObserver = new ResizeObserver(() => map.invalidateSize({ pan:false }))
+  const resizeObserver = new ResizeObserver(() => {
+    map.invalidateSize({ pan:false })
+    clampSplitMapWindow(item.id)
+  })
   resizeObserver.observe(element)
   splitMapResizeObservers.set(item.id, resizeObserver)
 }
@@ -334,24 +341,89 @@ function resizeSplitMapWindow(item, delta) {
   const bounds = container.getBoundingClientRect()
   const width = Math.min(dock.clientWidth, Math.max(280, Math.round(bounds.width + delta)))
   const height = Math.min(window.innerHeight - 120, Math.max(240, Math.round(bounds.height + delta * .7)))
-  container.style.width = `${width}px`
-  container.style.height = `${height}px`
+  item.width = width
+  item.height = height
 }
-function startSplitMapResize(item, event) {
+function clampSplitMapWindow(id) {
+  if (window.matchMedia('(max-width: 820px)').matches) return
+  const container = document.getElementById(`${id}-window`)
+  const dock = container?.parentElement
+  const item = splitMaps.value.find(map => map.id === id)
+  if (!container || !dock || !item || item.left === null) return
+  const bounds = container.getBoundingClientRect()
+  const dockBounds = dock.getBoundingClientRect()
+  const left = Math.min(Math.max(0, bounds.left - dockBounds.left), Math.max(0, dock.clientWidth - bounds.width))
+  const top = Math.min(Math.max(0, bounds.top - dockBounds.top), Math.max(0, dock.clientHeight - bounds.height))
+  if (left !== item.left) item.left = left
+  if (top !== item.top) item.top = top
+}
+function startSplitMapDrag(item, event) {
+  if (event.button !== 0 || event.target.closest('button')) return
   const container = document.getElementById(`${item.id}-window`)
   const dock = container?.parentElement
   if (!container || !dock) return
   event.preventDefault()
   const bounds = container.getBoundingClientRect()
+  const dockBounds = dock.getBoundingClientRect()
+  const startLeft = bounds.left - dockBounds.left
+  const startTop = bounds.top - dockBounds.top
+  const startX = event.clientX
+  const startY = event.clientY
+  const move = moveEvent => {
+    const left = Math.min(Math.max(0, startLeft + moveEvent.clientX - startX), Math.max(0, dock.clientWidth - bounds.width))
+    const top = Math.min(Math.max(0, startTop + moveEvent.clientY - startY), Math.max(0, dock.clientHeight - bounds.height))
+    container.style.left = `${left}px`
+    container.style.top = `${top}px`
+    container.style.right = 'auto'
+    container.style.bottom = 'auto'
+  }
+  const stop = () => {
+    const finalBounds = container.getBoundingClientRect()
+    const finalDockBounds = dock.getBoundingClientRect()
+    item.left = Math.max(0, Math.round(finalBounds.left - finalDockBounds.left))
+    item.top = Math.max(0, Math.round(finalBounds.top - finalDockBounds.top))
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop, { once:true })
+}
+function startSplitMapResize(item, event, corner = 'bottom-right') {
+  const container = document.getElementById(`${item.id}-window`)
+  const dock = container?.parentElement
+  if (!container || !dock) return
+  event.preventDefault()
+  const bounds = container.getBoundingClientRect()
+  const dockBounds = dock.getBoundingClientRect()
+  const startLeft = bounds.left - dockBounds.left
+  const startTop = bounds.top - dockBounds.top
   const startX = event.clientX
   const startY = event.clientY
   const resize = moveEvent => {
-    const width = Math.min(dock.clientWidth, Math.max(280, Math.round(bounds.width + moveEvent.clientX - startX)))
-    const height = Math.min(window.innerHeight - 120, Math.max(240, Math.round(bounds.height + moveEvent.clientY - startY)))
+    const deltaX = moveEvent.clientX - startX
+    const deltaY = moveEvent.clientY - startY
+    const minWidth = dock.clientWidth < 280 ? dock.clientWidth : 280
+    const maxHeight = Math.min(dock.clientHeight, window.innerHeight - 120)
+    const width = Math.min(dock.clientWidth, Math.max(minWidth, Math.round(bounds.width + (corner === 'top-left' ? -deltaX : deltaX))))
+    const height = Math.min(maxHeight, Math.max(240, Math.round(bounds.height + (corner === 'top-left' ? -deltaY : deltaY))))
     container.style.width = `${width}px`
     container.style.height = `${height}px`
+    if (corner === 'top-left') {
+      container.style.left = `${Math.max(0, startLeft + bounds.width - width)}px`
+      container.style.top = `${Math.max(0, startTop + bounds.height - height)}px`
+      container.style.right = 'auto'
+      container.style.bottom = 'auto'
+    }
   }
   const stop = () => {
+    const finalBounds = container.getBoundingClientRect()
+    const finalDockBounds = dock.getBoundingClientRect()
+    item.width = Math.round(finalBounds.width)
+    item.height = Math.round(finalBounds.height)
+    if (corner === 'top-left' || item.left !== null) {
+      item.left = Math.max(0, Math.round(finalBounds.left - finalDockBounds.left))
+      item.top = Math.max(0, Math.round(finalBounds.top - finalDockBounds.top))
+    }
     window.removeEventListener('pointermove', resize)
     window.removeEventListener('pointerup', stop)
   }
@@ -569,8 +641,9 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
                 </section>
               </div>
               <div v-if="splitMaps.length" class="split-map-windows" aria-label="서브 지도 목록">
-                <section v-for="subMap in splitMaps" :id="`${subMap.id}-window`" :key="subMap.id" class="split-map-window" :aria-label="`${physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name} 서브 지도`">
-                  <header><div><span>{{ subMap.parcelId }}</span><strong>{{ physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name }}</strong></div><div class="split-window-actions"><button type="button" aria-label="서브 지도 창 축소" @click="resizeSplitMapWindow(subMap, -60)">−</button><button type="button" aria-label="서브 지도 창 확대" @click="resizeSplitMapWindow(subMap, 60)">＋</button><button type="button" aria-label="서브 지도 닫기" @click="removeSplitMap(subMap.id)">×</button></div></header>
+                <section v-for="(subMap, subMapIndex) in splitMaps" :id="`${subMap.id}-window`" :key="subMap.id" class="split-map-window" :style="{ left: subMap.left === null ? 'auto' : `${subMap.left}px`, top: subMap.top === null ? 'auto' : `${subMap.top}px`, right: subMap.left === null ? `${16 + subMapIndex * 24}px` : 'auto', bottom: subMap.top === null ? `${16 + subMapIndex * 24}px` : 'auto', width: subMap.width ? `${subMap.width}px` : undefined, height: subMap.height ? `${subMap.height}px` : undefined }" :aria-label="`${physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name} 서브 지도`">
+                  <header @pointerdown="startSplitMapDrag(subMap, $event)"><div><span>{{ subMap.parcelId }}</span><strong>{{ physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name }}</strong></div><div class="split-window-actions"><button type="button" aria-label="서브 지도 창 축소" @click="resizeSplitMapWindow(subMap, -60)">−</button><button type="button" aria-label="서브 지도 창 확대" @click="resizeSplitMapWindow(subMap, 60)">＋</button><button type="button" aria-label="서브 지도 닫기" @click="removeSplitMap(subMap.id)">×</button></div></header>
+                  <span class="split-map-resize-handle split-map-resize-handle--top-left" aria-hidden="true" @pointerdown="startSplitMapResize(subMap, $event, 'top-left')"></span>
                   <div class="split-map-type segmented" aria-label="서브 지도 유형">
                     <button v-for="type in mapTypes" :key="type.value" :class="{ selected: subMap.mapType === type.value }" @click="setSplitMapType(subMap, type.value)">{{ type.label }}</button>
                   </div>
@@ -587,7 +660,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
                     </div>
                     <span class="split-map-rotation">회전 {{ subMap.rotation }}°</span>
                   </div>
-                  <span class="split-map-resize-handle" aria-hidden="true" @pointerdown="startSplitMapResize(subMap, $event)"></span>
+                  <span class="split-map-resize-handle split-map-resize-handle--bottom-right" aria-hidden="true" @pointerdown="startSplitMapResize(subMap, $event)"></span>
                 </section>
               </div>
               <aside v-if="selectedObject" class="object-detail" aria-live="polite">
