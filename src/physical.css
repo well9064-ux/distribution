@@ -15,6 +15,10 @@
 .gray-button { border: 1px solid #c6c6c6; background: #fff; color: #555; }
 .primary-small { border: 0; background: #ed7100; color: #fff; }
 .primary-small:disabled { background: #bebebe; cursor: not-allowed; }
+.danger-button { height: 32px; min-width: 72px; padding: 0 12px; border: 0; border-radius: 4px; background: #c62828; color: #fff; font-size: 12px; font-weight: 600; }
+.physical-delete-confirm { position: sticky; bottom: 0; padding: 14px 16px; border-top: 1px solid #f0b8b8; background: #fff5f5; }
+.physical-delete-confirm p { margin: 0 0 10px; color: #7f1d1d; font-size: 12px; line-height: 1.5; }
+.physical-delete-confirm>div { display: flex; justify-content: flex-end; gap: 8px; }
 .physical-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 280px minmax(420px,1fr) 300px; border: 1px solid #f0f0f0; border-radius: 8px; background: #fff; overflow: hidden; }
 .physical-list-panel,.physical-detail-panel { min-width: 0; background: #fff; }
 .physical-list-panel { border-right: 1px solid #f0f0f0; }

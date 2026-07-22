@@ -81,7 +81,10 @@ const physicalGridInteractionElement = ref(null)
 const selectedPhysicalId = ref('PHY-001')
 const draggingPhysicalIndex = ref(null)
 const drawMode = ref(false)
+const editingPhysicalId = ref('')
+const deleteConfirmPhysicalId = ref('')
 const physicalGridSelection = ref(null)
+let physicalEditSnapshot
 let physicalMap
 let physicalVworldLayers = []
 let physicalDraftLayer
@@ -102,6 +105,9 @@ const selectedPhysicalParcel = computed(() => physicalParcels.value.find(item =>
 const physicalDraftParcel = computed(() => physicalParcels.value.find(item => item.draft))
 const physicalGridAddresses = computed(() => {
   if (!physicalGridSelection.value) return { start:'', end:'' }
+  if (editingPhysicalId.value && physicalDraftParcel.value) {
+    return { start:physicalDraftParcel.value.startParcel,end:physicalDraftParcel.value.endParcel }
+  }
   const { minRow, maxRow, minColumn, maxColumn } = physicalGridSelection.value
   return { start:'(0,0)', end:`(${maxColumn - minColumn},${maxRow - minRow})` }
 })
@@ -305,6 +311,10 @@ function setPhysicalGridSelection(start, end) {
     physicalGridPointFromMeters(left,bottom),
   ]
   physicalGridSelection.value = { minRow:0,maxRow:rows - 1,minColumn:0,maxColumn:columns - 1,points }
+  if (physicalDraftParcel.value) {
+    physicalDraftParcel.value.startParcel = '(0,0)'
+    physicalDraftParcel.value.endParcel = `(${columns - 1},${rows - 1})`
+  }
   renderPhysicalDraftGrid()
 }
 function startPhysicalGridSelection(event) {
@@ -344,6 +354,8 @@ function startPhysicalDrawing() {
   const id = createPhysicalId()
   const today = currentKoreanDate()
   physicalParcels.value.push({ id, name:'새 물리지번', startParcel:'', endParcel:'', logicalParcel:'미연계', enabled:true, createdAt:today, createdBy:'관리자', updatedAt:today, updatedBy:'관리자', color:'#ED7100', points:[], draft:true })
+  editingPhysicalId.value = ''
+  physicalEditSnapshot = undefined
   selectedPhysicalId.value = id
   drawMode.value = true
   physicalGridSelection.value = null
@@ -351,8 +363,32 @@ function startPhysicalDrawing() {
   renderPhysicalPolygons()
   renderPhysicalGrid()
 }
+function physicalSelectionFromParcel(parcel) {
+  const { columns,rows } = parcelGridSize(physicalMap,parcel)
+  return { minRow:0,maxRow:rows - 1,minColumn:0,maxColumn:columns - 1,points:parcel.points.map(point => [...point]) }
+}
+function startPhysicalEditing() {
+  const parcel = selectedPhysicalParcel.value
+  if (!parcel || drawMode.value || !physicalMap) return
+  physicalEditSnapshot = JSON.parse(JSON.stringify(parcel))
+  editingPhysicalId.value = parcel.id
+  parcel.draft = true
+  physicalGridSelection.value = physicalSelectionFromParcel(parcel)
+  drawMode.value = true
+  deleteConfirmPhysicalId.value = ''
+  physicalMap.dragging.disable()
+  renderPhysicalPolygons()
+  renderPhysicalDraftGrid()
+  physicalMap.fitBounds(parcel.points, { padding:[60,60],maxZoom:18 })
+}
 function resetPhysicalDrawing() {
   if (!drawMode.value || !physicalDraftParcel.value) return
+  if (editingPhysicalId.value && physicalEditSnapshot) {
+    Object.assign(physicalDraftParcel.value,JSON.parse(JSON.stringify(physicalEditSnapshot)),{ draft:true })
+    physicalGridSelection.value = physicalSelectionFromParcel(physicalDraftParcel.value)
+    renderPhysicalDraftGrid()
+    return
+  }
   physicalDraftParcel.value.name = '새 물리지번'
   physicalDraftParcel.value.enabled = true
   physicalGridSelection.value = null
@@ -360,6 +396,21 @@ function resetPhysicalDrawing() {
   physicalDraftLayer = null
 }
 function cancelPhysicalDrawing() {
+  if (editingPhysicalId.value && physicalEditSnapshot) {
+    const parcel = physicalParcels.value.find(item => item.id === editingPhysicalId.value)
+    if (parcel) {
+      Object.assign(parcel,JSON.parse(JSON.stringify(physicalEditSnapshot)))
+      delete parcel.draft
+    }
+    drawMode.value = false
+    editingPhysicalId.value = ''
+    physicalEditSnapshot = undefined
+    physicalGridSelection.value = null
+    clearPhysicalDraftLayers()
+    physicalMap?.dragging.enable()
+    renderPhysicalPolygons()
+    return
+  }
   const draftIndex = physicalParcels.value.findIndex(parcel => parcel.draft)
   if (draftIndex >= 0) physicalParcels.value.splice(draftIndex, 1)
   drawMode.value = false
@@ -380,13 +431,35 @@ function completePhysicalDrawing() {
   draft.gridColumns = selection.maxColumn - selection.minColumn + 1
   draft.gridRows = selection.maxRow - selection.minRow + 1
   draft.updatedAt = currentKoreanDate()
+  draft.updatedBy = '관리자'
   delete draft.draft
   drawMode.value = false
+  editingPhysicalId.value = ''
+  physicalEditSnapshot = undefined
   clearPhysicalDraftLayers()
   physicalGridSelection.value = null
   physicalMap?.dragging.enable()
   renderPhysicalPolygons()
   selectPhysicalParcel(draft.id)
+}
+function requestPhysicalDelete() {
+  if (!selectedPhysicalParcel.value) return
+  deleteConfirmPhysicalId.value = selectedPhysicalParcel.value.id
+}
+function cancelPhysicalDelete() {
+  deleteConfirmPhysicalId.value = ''
+}
+function confirmPhysicalDelete() {
+  const id = deleteConfirmPhysicalId.value
+  const index = physicalParcels.value.findIndex(parcel => parcel.id === id)
+  if (index < 0) return
+  splitMaps.value.filter(item => item.parcelId === id).forEach(item => removeSplitMap(item.id))
+  physicalParcels.value.splice(index,1)
+  deleteConfirmPhysicalId.value = ''
+  selectedPhysicalId.value = physicalParcels.value[Math.min(index,physicalParcels.value.length - 1)]?.id || ''
+  renderPhysicalPolygons()
+  const selected = selectedPhysicalParcel.value
+  if (selected?.points?.length) physicalMap?.fitBounds(selected.points,{ padding:[60,60],maxZoom:18 })
 }
 function toggleItem(item) {
   displayItems.value = displayItems.value.includes(item)
@@ -908,7 +981,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             <div class="physical-list">
               <template v-for="(parcel,index) in physicalParcels" :key="parcel.id">
                 <div v-if="parcel.draft" class="physical-list-draft selected" draggable="true" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)">
-                  <span class="drag-handle" title="순서 변경">⠿</span><span class="draft-folder" aria-hidden="true">▰</span><label><span class="sr-only">물리지번 명칭</span><input v-model="parcel.name" maxlength="40" placeholder="물리지번 명칭 입력" /></label><b>작성중</b>
+                  <span class="drag-handle" title="순서 변경">⠿</span><span class="draft-folder" aria-hidden="true">▰</span><label><span class="sr-only">물리지번 명칭</span><input v-model="parcel.name" maxlength="40" placeholder="물리지번 명칭 입력" /></label><b>{{ editingPhysicalId === parcel.id ? '수정중' : '작성중' }}</b>
                 </div>
                 <button v-else draggable="true" :class="{ selected: selectedPhysicalId === parcel.id, dragging: draggingPhysicalIndex === index }" :aria-pressed="selectedPhysicalId === parcel.id" @dragstart="dragPhysicalStart(index)" @dragover.prevent @drop="dropPhysicalAt(index)" @click="selectPhysicalParcel(parcel.id)">
                   <span class="drag-handle" title="순서 변경">⠿</span><i :style="{ background: parcel.color }"></i><span><strong>{{ parcel.name }}</strong><small>{{ parcel.id }} · {{ parcel.logicalParcel }}</small></span><b :class="{ off: !parcel.enabled }">{{ parcel.enabled ? '사용' : '미사용' }}</b>
@@ -935,7 +1008,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             <div v-if="drawMode" class="drawing-badge">10m × 10m 격자 선택 모드</div>
           </section>
           <aside v-if="drawMode && physicalDraftParcel" class="physical-detail-panel physical-create-panel">
-            <div class="detail-heading"><span>신규 등록</span><h2>{{ physicalDraftParcel.name || '물리지번 명칭 미입력' }}</h2><small>격자 영역을 지정하면 좌표가 자동 계산됩니다.</small></div>
+            <div class="detail-heading"><span>{{ editingPhysicalId ? '물리지번 수정' : '신규 등록' }}</span><h2>{{ physicalDraftParcel.name || '물리지번 명칭 미입력' }}</h2><small>{{ editingPhysicalId ? '기존 정보를 유지한 상태에서 명칭, 사용 여부와 격자 영역을 수정할 수 있습니다.' : '격자 영역을 지정하면 좌표가 자동 계산됩니다.' }}</small></div>
             <dl class="physical-create-fields">
               <div><dt>ID</dt><dd><input :value="physicalDraftParcel.id" readonly aria-label="자동 생성 ID" /></dd></div>
               <div><dt>시작 지번</dt><dd><input :value="physicalGridAddresses.start" readonly placeholder="영역 지정 필요" aria-label="시작 지번" /></dd></div>
@@ -945,7 +1018,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
               <div><dt>생성자</dt><dd><input :value="physicalDraftParcel.createdBy" readonly aria-label="생성자" /></dd></div>
             </dl>
             <div class="physical-selection-summary" aria-live="polite"><strong v-if="physicalGridSelection">{{ physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1 }} × {{ physicalGridSelection.maxRow - physicalGridSelection.minRow + 1 }}칸 선택</strong><span v-if="physicalGridSelection">실제 크기 {{ (physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1) * 10 }}m × {{ (physicalGridSelection.maxRow - physicalGridSelection.minRow + 1) * 10 }}m</span><span v-else>지도에서 영역을 드래그해주세요.</span></div>
-            <div class="detail-footer"><button class="primary-small" :disabled="!physicalGridSelection || !physicalDraftParcel.name.trim()" @click="completePhysicalDrawing">완료</button></div>
+            <div class="detail-footer"><button class="primary-small" :disabled="!physicalGridSelection || !physicalDraftParcel.name.trim()" @click="completePhysicalDrawing">{{ editingPhysicalId ? '수정 완료' : '완료' }}</button></div>
           </aside>
           <aside v-else-if="selectedPhysicalParcel" class="physical-detail-panel">
             <div class="detail-heading"><span>상세정보</span><h2>{{ selectedPhysicalParcel.name }}</h2><small>{{ selectedPhysicalParcel.id }}</small></div>
@@ -960,7 +1033,8 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
               <div><dt>최근수정일</dt><dd>{{ selectedPhysicalParcel.updatedAt }}</dd></div>
               <div><dt>수정자</dt><dd>{{ selectedPhysicalParcel.updatedBy }}</dd></div>
             </dl>
-            <div class="detail-footer"><button class="gray-button">삭제</button><button class="primary-small">수정</button></div>
+            <div v-if="deleteConfirmPhysicalId === selectedPhysicalParcel.id" class="physical-delete-confirm" role="alert"><p><strong>{{ selectedPhysicalParcel.name }}</strong> 물리지번을 삭제하시겠습니까?</p><div><button class="gray-button" @click="cancelPhysicalDelete">취소</button><button class="danger-button" @click="confirmPhysicalDelete">삭제 확인</button></div></div>
+            <div v-else class="detail-footer"><button class="gray-button" @click="requestPhysicalDelete">삭제</button><button class="primary-small" @click="startPhysicalEditing">수정</button></div>
           </aside>
         </div>
       </div>
