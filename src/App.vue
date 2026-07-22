@@ -22,6 +22,7 @@ const mapOptions = ref(['적치 여부'])
 const displayItems = ref(['자재', '블록', '방해요소', '운송자원', '주요시설'])
 const DEFAULT_MAP_ROTATION = 38
 const DEFAULT_MAP_ZOOM = 1
+const MIN_MAP_ZOOM = .4
 const savedMapView = (() => {
   try { return JSON.parse(localStorage.getItem('hanwha-map-view') || '{}') }
   catch { return {} }
@@ -244,11 +245,19 @@ function setPhysicalGridSelection(start, end) {
   physicalGridSelection.value = { minRow, maxRow, minColumn, maxColumn, points }
 }
 function startPhysicalGridSelection(event) {
-  if (!drawMode.value) return
+  if (!drawMode.value || event.button !== 0) return
   event.preventDefault()
   event.currentTarget.setPointerCapture?.(event.pointerId)
   physicalGridDragStart = physicalGridCellFromPointer(event)
   setPhysicalGridSelection(physicalGridDragStart, physicalGridDragStart)
+}
+function clearPhysicalGridSelection(event) {
+  if (!drawMode.value) return
+  event.preventDefault()
+  physicalGridDragStart = null
+  physicalGridSelection.value = null
+  if (physicalDraftLayer && physicalMap) physicalMap.removeLayer(physicalDraftLayer)
+  physicalDraftLayer = null
 }
 function updatePhysicalGridSelection(event) {
   if (!drawMode.value || !physicalGridDragStart) return
@@ -331,14 +340,14 @@ function resetMapSettings() {
   resetMapView()
 }
 function zoomMap(delta) {
-  mapZoom.value = Math.min(2, Math.max(.75, Number((mapZoom.value + delta).toFixed(2))))
+  mapZoom.value = Math.min(2, Math.max(MIN_MAP_ZOOM, Number((mapZoom.value + delta).toFixed(2))))
 }
 function handleMapWheel(event) {
   zoomMap(event.deltaY < 0 ? .05 : -.05)
 }
 function applyZoomInput(event) {
   const value = Number(event.target.value)
-  const percent = Number.isFinite(value) ? Math.min(200, Math.max(75, Math.round(value))) : 100
+  const percent = Number.isFinite(value) ? Math.min(200, Math.max(MIN_MAP_ZOOM * 100, Math.round(value))) : 100
   mapZoom.value = percent / 100
   event.target.value = percent
 }
@@ -452,7 +461,7 @@ function setSplitMapType(item, type) {
   refreshSplitMapLayers(item)
 }
 function zoomSplitMap(item, delta) {
-  item.zoom = Math.min(2, Math.max(.75, Number((item.zoom + delta).toFixed(2))))
+  item.zoom = Math.min(2, Math.max(MIN_MAP_ZOOM, Number((item.zoom + delta).toFixed(2))))
 }
 function rotateSplitMap(item, direction) {
   let next = item.rotation + (15 * direction)
@@ -764,8 +773,8 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
               </form>
               <div class="map-view-controls" aria-label="지도 보기 제어">
                 <button title="확대" aria-label="지도 확대" :disabled="mapZoom >= 2" @click="zoomMap(.25)">＋</button>
-                <label class="zoom-input"><input :value="Math.round(mapZoom * 100)" type="number" min="75" max="200" step="5" aria-label="지도 확대 비율" @change="applyZoomInput" /><span>%</span></label>
-                <button title="축소" aria-label="지도 축소" :disabled="mapZoom <= .75" @click="zoomMap(-.25)">−</button>
+                <label class="zoom-input"><input :value="Math.round(mapZoom * 100)" type="number" min="40" max="200" step="5" aria-label="지도 확대 비율" @change="applyZoomInput" /><span>%</span></label>
+                <button title="축소" aria-label="지도 축소" :disabled="mapZoom <= MIN_MAP_ZOOM" @click="zoomMap(-.25)">−</button>
                 <button title="왼쪽으로 15도 회전" aria-label="지도 반시계 방향 15도 회전" @click="rotateMap(-1)">↺</button>
                 <button title="오른쪽으로 15도 회전" aria-label="지도 시계 방향 15도 회전" @click="rotateMap(1)">↻</button>
                 <button title="원위치" aria-label="지도 보기 원위치" @click="resetMapView">⌂</button>
@@ -799,7 +808,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
                     <div class="split-map-controls map-view-controls" aria-label="서브 지도 보기 제어">
                       <button aria-label="서브 지도 확대" :disabled="subMap.zoom >= 2" @click="zoomSplitMap(subMap, .25)">＋</button>
                       <span>{{ Math.round(subMap.zoom * 100) }}%</span>
-                      <button aria-label="서브 지도 축소" :disabled="subMap.zoom <= .75" @click="zoomSplitMap(subMap, -.25)">−</button>
+                      <button aria-label="서브 지도 축소" :disabled="subMap.zoom <= MIN_MAP_ZOOM" @click="zoomSplitMap(subMap, -.25)">−</button>
                       <button aria-label="서브 지도 반시계 방향 회전" @click="rotateSplitMap(subMap, -1)">↺</button>
                       <button aria-label="서브 지도 시계 방향 회전" @click="rotateSplitMap(subMap, 1)">↻</button>
                       <button aria-label="서브 지도 원위치" @click="resetSplitMap(subMap)">⌂</button>
@@ -839,7 +848,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
               </template>
             </div>
           </aside>
-          <section ref="physicalMapContainer" class="physical-map-panel" @wheel.prevent="handleMapWheel">
+          <section ref="physicalMapContainer" class="physical-map-panel" @wheel.prevent="handleMapWheel" @contextmenu="clearPhysicalGridSelection">
             <div ref="physicalMapElement" class="physical-map" :style="{ transform: `scale(${mapZoom}) rotate(${mapRotation}deg)` }"></div>
             <div v-if="drawMode" ref="physicalGridInteractionElement" class="physical-grid-interaction" aria-label="10m 단위 물리지번 영역 선택" @pointerdown="startPhysicalGridSelection" @pointermove="updatePhysicalGridSelection" @pointerup="finishPhysicalGridSelection">
               <div v-if="physicalGridSelection" class="physical-grid-selection-box" :style="physicalGridSelectionStyle"><span>{{ physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1 }} × {{ physicalGridSelection.maxRow - physicalGridSelection.minRow + 1 }}칸</span></div>
@@ -847,8 +856,8 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             <div class="physical-map-types segmented" aria-label="지도 유형"><button v-for="type in mapTypes" :key="type.value" :class="{ selected: mapType === type.value }" @click="mapType = type.value">{{ type.label }}</button></div>
             <div class="physical-map-controls map-view-controls" aria-label="지도 보기 제어">
               <button title="확대" aria-label="지도 확대" :disabled="mapZoom >= 2" @click="zoomMap(.25)">＋</button>
-              <label class="zoom-input"><input :value="Math.round(mapZoom * 100)" type="number" min="75" max="200" step="5" aria-label="지도 확대 비율" @change="applyZoomInput" /><span>%</span></label>
-              <button title="축소" aria-label="지도 축소" :disabled="mapZoom <= .75" @click="zoomMap(-.25)">−</button>
+              <label class="zoom-input"><input :value="Math.round(mapZoom * 100)" type="number" min="40" max="200" step="5" aria-label="지도 확대 비율" @change="applyZoomInput" /><span>%</span></label>
+              <button title="축소" aria-label="지도 축소" :disabled="mapZoom <= MIN_MAP_ZOOM" @click="zoomMap(-.25)">−</button>
               <button title="왼쪽으로 15도 회전" aria-label="지도 반시계 방향 15도 회전" @click="rotateMap(-1)">↺</button>
               <button title="오른쪽으로 15도 회전" aria-label="지도 시계 방향 15도 회전" @click="rotateMap(1)">↻</button>
               <button title="원위치" aria-label="지도 보기 원위치" @click="resetMapView">⌂</button>
