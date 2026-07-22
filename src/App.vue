@@ -360,13 +360,14 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
     </aside>
 
-    <section class="workspace">
+    <main class="workspace">
       <header class="topbar">
         <div><span class="home-icon">◆</span><span>›</span><strong>{{ activeMenu }}</strong></div>
         <div class="topbar-meta"><span>{{ now }}</span><button aria-label="알림">♢<i></i></button><span class="user-chip">관</span><strong>관리자</strong></div>
       </header>
 
       <div v-if="activeMenu === '대시보드'" class="dashboard">
+        <h1 class="sr-only">대시보드</h1>
         <section class="stats-grid" aria-label="주요 통계">
           <article class="stat-card"><div class="stat-icon orange-bg">◔</div><div><span>야드 점유율</span><strong>68.4<small>%</small></strong><p><b class="up">▲ 2.3%</b> 전일 대비</p></div></article>
           <article class="stat-card"><div class="stat-icon sand-bg">⬡</div><div><span>블록개소</span><strong>142<small>개</small></strong><p><b class="up">▲ 8개</b> 전일 대비</p></div></article>
@@ -466,6 +467,6 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
 
       <div v-else class="empty-page"><span class="empty-icon">▦</span><h1>{{ activeMenu }}</h1><p>이 메뉴는 다음 단계에서 구성할 예정입니다.</p><button class="outline-button" @click="activeMenu = '대시보드'">대시보드로 이동</button></div>
-    </section>
+    </main>
   </div>
 </template>
