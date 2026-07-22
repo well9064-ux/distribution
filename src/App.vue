@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet-rotate'
 import { Box, Home, KeyRound, LayoutDashboard, LogOut, MapPin, Package, Settings, Truck, UserRound } from '@lucide/vue'
 
 const loggedIn = ref(false)
@@ -23,6 +24,8 @@ const displayItems = ref(['자재', '블록', '방해요소', '운송자원', '�
 const DEFAULT_MAP_ROTATION = 38
 const DEFAULT_MAP_ZOOM = 1
 const MIN_MAP_ZOOM = .4
+const MAX_MAP_ZOOM = 2
+const BASE_LEAFLET_ZOOM = 16
 const savedMapView = (() => {
   try { return JSON.parse(localStorage.getItem('hanwha-map-view') || '{}') }
   catch { return {} }
@@ -141,9 +144,46 @@ async function selectLandSubmenu(label) {
     initializePhysicalMap()
   }
 }
+function mapScaleToLeafletZoom(scale = mapZoom.value) {
+  return BASE_LEAFLET_ZOOM + Math.log2(scale)
+}
+function leafletZoomToMapScale(zoom) {
+  return Math.min(MAX_MAP_ZOOM, Math.max(MIN_MAP_ZOOM, Number((2 ** (zoom - BASE_LEAFLET_ZOOM)).toFixed(2))))
+}
+function createVworldLeafletMap(element, showZoomControl = false) {
+  return L.map(element, {
+    zoomControl:showZoomControl,
+    attributionControl:true,
+    zoomSnap:.05,
+    zoomDelta:.25,
+    wheelPxPerZoomLevel:60,
+    rotate:true,
+    bearing:mapRotation.value,
+    rotateControl:false,
+    touchRotate:true,
+    shiftKeyRotate:true,
+  }).setView([34.9012707,127.593559], mapScaleToLeafletZoom())
+}
+function applyNativeMapView(map) {
+  if (!map) return
+  const targetZoom = mapScaleToLeafletZoom()
+  if (Math.abs(map.getZoom() - targetZoom) > .01) map.setZoom(targetZoom, { animate:false })
+  if (typeof map.setBearing === 'function' && Math.abs((map.getBearing?.() || 0) - mapRotation.value) > .1) map.setBearing(mapRotation.value)
+}
+function bindNativeMapView(map) {
+  map.on('zoom', () => {
+    const nextScale = leafletZoomToMapScale(map.getZoom())
+    if (nextScale !== mapZoom.value) mapZoom.value = nextScale
+  })
+  map.on('rotate', () => {
+    const bearing = Math.round(map.getBearing?.() || 0)
+    if (bearing !== mapRotation.value) mapRotation.value = bearing
+  })
+}
 function initializePhysicalMap() {
   if (!physicalMapElement.value || physicalMap) return
-  physicalMap = L.map(physicalMapElement.value, { zoomControl: true }).setView([34.9012707,127.593559], 16)
+  physicalMap = createVworldLeafletMap(physicalMapElement.value, true)
+  bindNativeMapView(physicalMap)
   setPhysicalVworldLayer()
   renderPhysicalPolygons()
   if (drawMode.value) renderPhysicalGrid()
@@ -340,7 +380,7 @@ function resetMapSettings() {
   resetMapView()
 }
 function zoomMap(delta) {
-  mapZoom.value = Math.min(2, Math.max(MIN_MAP_ZOOM, Number((mapZoom.value + delta).toFixed(2))))
+  mapZoom.value = Math.min(MAX_MAP_ZOOM, Math.max(MIN_MAP_ZOOM, Number((mapZoom.value + delta).toFixed(2))))
 }
 function handleMapWheel(event) {
   zoomMap(event.deltaY < 0 ? .05 : -.05)
@@ -386,7 +426,8 @@ function setVworldLayer() {
 }
 function initializeVworldMap() {
   if (!vworldKey || !vworldMapElement.value || vworldMap) return
-  vworldMap = L.map(vworldMapElement.value, { zoomControl: false, attributionControl: true }).setView([34.9012707, 127.593559], 16)
+  vworldMap = createVworldLeafletMap(vworldMapElement.value)
+  bindNativeMapView(vworldMap)
   setVworldLayer()
 }
 async function openSplitMapDialog() {
@@ -657,6 +698,8 @@ watch(activeMenu, async (menu, previousMenu) => {
 })
 watch([mapZoom, mapRotation], ([zoom, rotation]) => {
   localStorage.setItem('hanwha-map-view', JSON.stringify({ zoom, rotation }))
+  applyNativeMapView(vworldMap)
+  applyNativeMapView(physicalMap)
 })
 onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
 </script>
@@ -755,9 +798,9 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             </div>
           </div>
           <div class="map-area">
-            <div ref="mapContainer" class="map-stage" :class="{ 'has-vworld': vworldReady }" @wheel.prevent="handleMapWheel">
-            <div ref="vworldMapElement" class="vworld-map" :style="{ transform: `scale(${mapZoom}) rotate(${mapRotation}deg)` }"></div>
-            <div class="mock-map" :style="{ transform: `scale(${mapZoom}) rotate(${mapRotation}deg)`, '--counter-rotation': `${-mapRotation}deg` }">
+            <div ref="mapContainer" class="map-stage" :class="{ 'has-vworld': vworldReady }">
+            <div ref="vworldMapElement" class="vworld-map"></div>
+            <div class="mock-map" :style="{ transform: `rotate(${mapRotation}deg)`, '--counter-rotation': `${-mapRotation}deg` }">
               <div class="yard-operation-zone">
                 <div v-if="mapOptions.includes('CAD 도면')" class="cad-overlay"><i></i><i></i><i></i><i></i></div>
                 <template v-if="displayItems.includes('자재')"><button type="button" class="map-object material ma1" :class="{ focused: focusedCode === 'MAT-12' }" title="MAT-12 · 입고 자재" @click="showObjectDetails('MAT-12')">12</button><button type="button" class="map-object material ma2" :class="{ focused: focusedCode === 'MAT-08' }" title="MAT-08 · 입고 자재" @click="showObjectDetails('MAT-08')">8</button></template>
@@ -849,8 +892,8 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             </div>
           </aside>
           <section ref="physicalMapContainer" class="physical-map-panel" @wheel.prevent="handleMapWheel" @contextmenu="clearPhysicalGridSelection">
-            <div ref="physicalMapElement" class="physical-map" :style="{ transform: `scale(${mapZoom}) rotate(${mapRotation}deg)` }"></div>
-            <div v-if="drawMode" ref="physicalGridInteractionElement" class="physical-grid-interaction" aria-label="10m 단위 물리지번 영역 선택" @pointerdown="startPhysicalGridSelection" @pointermove="updatePhysicalGridSelection" @pointerup="finishPhysicalGridSelection">
+            <div ref="physicalMapElement" class="physical-map"></div>
+            <div v-if="drawMode" ref="physicalGridInteractionElement" class="physical-grid-interaction" aria-label="10m 단위 물리지번 영역 선택" @wheel.prevent="handleMapWheel" @pointerdown="startPhysicalGridSelection" @pointermove="updatePhysicalGridSelection" @pointerup="finishPhysicalGridSelection">
               <div v-if="physicalGridSelection" class="physical-grid-selection-box" :style="physicalGridSelectionStyle"><span>{{ physicalGridSelection.maxColumn - physicalGridSelection.minColumn + 1 }} × {{ physicalGridSelection.maxRow - physicalGridSelection.minRow + 1 }}칸</span></div>
             </div>
             <div class="physical-map-types segmented" aria-label="지도 유형"><button v-for="type in mapTypes" :key="type.value" :class="{ selected: mapType === type.value }" @click="mapType = type.value">{{ type.label }}</button></div>

@@ -12,6 +12,7 @@
     "@lucide/vue": "^1.25.0",
     "@vitejs/plugin-vue": "latest",
     "leaflet": "^1.9.4",
+    "leaflet-rotate": "0.2.8",
     "vite": "latest",
     "vue": "latest"
   }
