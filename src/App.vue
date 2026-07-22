@@ -423,7 +423,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
 
       <div v-else-if="activeMenu === '물리지번 목록'" class="physical-page">
-        <header class="physical-page-header"><div><h1>물리지번 목록</h1><p>야드의 실제 공간 영역을 등록하고 표시 순서를 관리합니다.</p></div><div class="physical-actions"><button v-if="!drawMode" class="outline-button" @click="startPhysicalDrawing">＋ 물리지번 그리기</button><template v-else><span class="draw-guide">지도에서 영역 꼭짓점을 클릭하세요 · {{ drawPoints.length }}개</span><button class="gray-button" @click="cancelPhysicalDrawing">취소</button><button class="primary-small" :disabled="drawPoints.length < 3" @click="completePhysicalDrawing">영역 완료</button></template></div></header>
+        <header class="physical-page-header"><div><h1>물리지번 목록</h1><p>야드의 실제 공간 영역을 등록하고 표시 순서를 관리합니다.</p></div><div class="physical-actions"><button v-if="!drawMode" class="outline-button" @click="startPhysicalDrawing">＋ 물리지번 추가</button><template v-else><span class="draw-guide">지도에서 영역 꼭짓점을 클릭하세요 · {{ drawPoints.length }}개</span><button class="gray-button" @click="cancelPhysicalDrawing">취소</button><button class="primary-small" :disabled="drawPoints.length < 3" @click="completePhysicalDrawing">영역 완료</button></template></div></header>
         <div class="physical-layout">
           <aside class="physical-list-panel">
             <div class="panel-heading"><div><h2>물리지번</h2><span>{{ physicalParcels.length }}개</span></div><small>끌어서 표시 순서를 변경합니다.</small></div>
