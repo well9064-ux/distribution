@@ -43,6 +43,7 @@ const selectableSplitParcels = computed(() => physicalParcels.value.filter(parce
 const splitMapElements = new Map()
 const splitLeafletMaps = new Map()
 const splitLeafletLayers = new Map()
+const splitMapResizeObservers = new Map()
 let splitMapSequence = 0
 const searchCode = ref('')
 const focusedCode = ref('')
@@ -284,6 +285,9 @@ function initializeSplitMap(item) {
     map.invalidateSize()
     map.fitBounds(parcel.points, { padding:[28,28], maxZoom:18 })
   }, 100)
+  const resizeObserver = new ResizeObserver(() => map.invalidateSize({ pan:false }))
+  resizeObserver.observe(element)
+  splitMapResizeObservers.set(item.id, resizeObserver)
 }
 function refreshSplitMapLayers(item) {
   const map = splitLeafletMaps.get(item.id)
@@ -323,7 +327,40 @@ async function toggleSplitMapFullscreen(item) {
   else await document.exitFullscreen()
   setTimeout(() => splitLeafletMaps.get(item.id)?.invalidateSize(), 100)
 }
+function resizeSplitMapWindow(item, delta) {
+  const container = document.getElementById(`${item.id}-window`)
+  const dock = container?.parentElement
+  if (!container || !dock) return
+  const bounds = container.getBoundingClientRect()
+  const width = Math.min(dock.clientWidth, Math.max(280, Math.round(bounds.width + delta)))
+  const height = Math.min(window.innerHeight - 120, Math.max(240, Math.round(bounds.height + delta * .7)))
+  container.style.width = `${width}px`
+  container.style.height = `${height}px`
+}
+function startSplitMapResize(item, event) {
+  const container = document.getElementById(`${item.id}-window`)
+  const dock = container?.parentElement
+  if (!container || !dock) return
+  event.preventDefault()
+  const bounds = container.getBoundingClientRect()
+  const startX = event.clientX
+  const startY = event.clientY
+  const resize = moveEvent => {
+    const width = Math.min(dock.clientWidth, Math.max(280, Math.round(bounds.width + moveEvent.clientX - startX)))
+    const height = Math.min(window.innerHeight - 120, Math.max(240, Math.round(bounds.height + moveEvent.clientY - startY)))
+    container.style.width = `${width}px`
+    container.style.height = `${height}px`
+  }
+  const stop = () => {
+    window.removeEventListener('pointermove', resize)
+    window.removeEventListener('pointerup', stop)
+  }
+  window.addEventListener('pointermove', resize)
+  window.addEventListener('pointerup', stop, { once:true })
+}
 function destroySplitMap(id) {
+  splitMapResizeObservers.get(id)?.disconnect()
+  splitMapResizeObservers.delete(id)
   splitLeafletMaps.get(id)?.remove()
   splitLeafletMaps.delete(id)
   splitLeafletLayers.delete(id)
@@ -533,7 +570,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
               </div>
               <div v-if="splitMaps.length" class="split-map-windows" aria-label="서브 지도 목록">
                 <section v-for="subMap in splitMaps" :id="`${subMap.id}-window`" :key="subMap.id" class="split-map-window" :aria-label="`${physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name} 서브 지도`">
-                  <header><div><span>{{ subMap.parcelId }}</span><strong>{{ physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name }}</strong></div><button type="button" aria-label="서브 지도 닫기" @click="removeSplitMap(subMap.id)">×</button></header>
+                  <header><div><span>{{ subMap.parcelId }}</span><strong>{{ physicalParcels.find(parcel => parcel.id === subMap.parcelId)?.name }}</strong></div><div class="split-window-actions"><button type="button" aria-label="서브 지도 창 축소" @click="resizeSplitMapWindow(subMap, -60)">−</button><button type="button" aria-label="서브 지도 창 확대" @click="resizeSplitMapWindow(subMap, 60)">＋</button><button type="button" aria-label="서브 지도 닫기" @click="removeSplitMap(subMap.id)">×</button></div></header>
                   <div class="split-map-type segmented" aria-label="서브 지도 유형">
                     <button v-for="type in mapTypes" :key="type.value" :class="{ selected: subMap.mapType === type.value }" @click="setSplitMapType(subMap, type.value)">{{ type.label }}</button>
                   </div>
@@ -550,6 +587,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
                     </div>
                     <span class="split-map-rotation">회전 {{ subMap.rotation }}°</span>
                   </div>
+                  <span class="split-map-resize-handle" aria-hidden="true" @pointerdown="startSplitMapResize(subMap, $event)"></span>
                 </section>
               </div>
               <aside v-if="selectedObject" class="object-detail" aria-live="polite">
