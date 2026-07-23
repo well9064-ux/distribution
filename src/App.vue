@@ -246,6 +246,8 @@ const dispatchEditingId = ref('')
 const dispatchForm = ref({})
 const dispatchNotice = ref('')
 const dispatchStageFilter = ref('전체')
+const dispatchView = ref('list')
+const dispatchCalendarMonth = ref(new Date().toISOString().slice(0,7))
 const loadResources = computed(() => standardTimeMasters.value.map(item => {
   const equipment = equipmentMasters.value.find(master => master.code === item.equipmentCode)
   return { pcg:item.pcg, spec:equipment?.spec || item.equipmentCode.replace(/\D/g,''), code:item.equipmentCode, equipmentCode:item.equipmentCode, standardHours:Number(item.hours) || 0 }
@@ -379,6 +381,50 @@ const filteredDispatchPlans = computed(() => dispatchPlans.value.filter(plan => 
   const detail = dispatchPlanDetail(plan)
   return detail && (dispatchStageFilter.value === '전체' || detail.rule.stage === dispatchStageFilter.value)
 }))
+const dispatchCalendarDays = computed(() => {
+  const [year, month] = dispatchCalendarMonth.value.split('-').map(Number)
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return Array.from({ length:count }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1, index + 1))
+    return {
+      day:index + 1,
+      weekday:['일','월','화','수','목','금','토'][date.getUTCDay()],
+      weekend:[0,6].includes(date.getUTCDay()),
+      today:date.toISOString().slice(0,10) === new Date().toISOString().slice(0,10),
+    }
+  })
+})
+const dispatchCalendarLabel = computed(() => {
+  const [year, month] = dispatchCalendarMonth.value.split('-').map(Number)
+  return `${year}년 ${month}월`
+})
+const dispatchGanttRows = computed(() => {
+  const monthStart = `${dispatchCalendarMonth.value}-01`
+  const monthEnd = `${dispatchCalendarMonth.value}-${String(dispatchCalendarDays.value.length).padStart(2,'0')}`
+  return filteredDispatchPlans.value.map(plan => {
+    const detail = dispatchPlanDetail(plan)
+    const dailyHours = Math.max(1, Number(detail?.equipment?.dailyHours) || 8)
+    const duration = Math.max(1, Math.ceil(Number(detail?.requiredHours || 0) / dailyHours))
+    const startDate = detail.dispatchDate
+    const endDate = addDays(startDate, duration - 1)
+    if (endDate < monthStart || startDate > monthEnd) return null
+    const visibleStart = startDate < monthStart ? monthStart : startDate
+    const visibleEnd = endDate > monthEnd ? monthEnd : endDate
+    return {
+      plan, detail, startDate, endDate, duration,
+      startDay:Number(visibleStart.slice(-2)),
+      visibleDays:Number(visibleEnd.slice(-2)) - Number(visibleStart.slice(-2)) + 1,
+    }
+  }).filter(Boolean)
+})
+function moveDispatchCalendarMonth(offset) {
+  const [year, month] = dispatchCalendarMonth.value.split('-').map(Number)
+  const next = new Date(Date.UTC(year, month - 1 + offset, 1))
+  dispatchCalendarMonth.value = next.toISOString().slice(0,7)
+}
+function showDispatchToday() {
+  dispatchCalendarMonth.value = new Date().toISOString().slice(0,7)
+}
 function openDispatchCreate() {
   dispatchEditingId.value = ''
   dispatchNotice.value = ''
@@ -1477,11 +1523,36 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       <div v-else-if="activeMenu === '중기배차계획'" class="management-page">
         <header class="management-header"><div><h1>중기배차계획</h1><p>생산계획의 기준일과 배차규칙을 연결해 장비 투입일과 필요시간을 자동 계산합니다.</p></div><button class="primary-small" @click="openDispatchCreate">＋ 배차계획 등록</button></header>
         <ol class="workflow-strip" aria-label="부하율 업무 흐름"><li class="done"><span>1</span><strong>마스터 관리</strong><small>장비·규칙·표준시간</small></li><li class="active"><span>2</span><strong>중기배차계획</strong><small>생산단계별 투입계획</small></li><li><span>3</span><strong>부하율 분석</strong><small>주·월 통계와 과부하</small></li></ol>
-        <section class="dispatch-toolbar"><label>생산단계<select v-model="dispatchStageFilter"><option>전체</option><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label><span>총 {{ filteredDispatchPlans.length }}건</span></section>
-        <section class="management-card">
+        <section class="dispatch-toolbar">
+          <label>생산단계<select v-model="dispatchStageFilter"><option>전체</option><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label>
+          <div class="dispatch-view-switch" role="group" aria-label="배차계획 보기 방식"><button :class="{ active:dispatchView === 'list' }" @click="dispatchView = 'list'">목록</button><button :class="{ active:dispatchView === 'gantt' }" @click="dispatchView = 'gantt'">간트 캘린더</button></div>
+          <span>총 {{ filteredDispatchPlans.length }}건</span>
+        </section>
+        <section v-if="dispatchView === 'list'" class="management-card">
           <table class="management-table dispatch-table"><thead><tr><th>계획ID</th><th>호선</th><th>블록</th><th>PCG</th><th>생산단계</th><th>운송작업</th><th>기준일</th><th>투입예정일</th><th>장비</th><th>필요시간</th><th>상태</th><th>관리</th></tr></thead>
             <tbody><tr v-for="plan in filteredDispatchPlans" :key="plan.id"><td>{{ plan.id }}</td><td><strong>{{ plan.project }}</strong></td><td>{{ plan.block }}</td><td>{{ dispatchPlanDetail(plan)?.rule.pcg }}</td><td>{{ dispatchPlanDetail(plan)?.rule.stage }}</td><td>{{ dispatchPlanDetail(plan)?.rule.task }}</td><td>{{ plan.baseDate }}</td><td><strong class="orange-text">{{ dispatchPlanDetail(plan)?.dispatchDate }}</strong></td><td>{{ dispatchPlanDetail(plan)?.rule.equipmentCode }} × {{ dispatchPlanDetail(plan)?.rule.quantity }}</td><td>{{ dispatchPlanDetail(plan)?.requiredHours }} HR</td><td><span class="plan-status" :class="plan.status">{{ plan.status }}</span></td><td class="row-actions"><button @click="editDispatch(plan)">수정</button><button class="delete" @click="deleteDispatch(plan)">삭제</button></td></tr></tbody>
           </table>
+        </section>
+        <section v-else class="dispatch-gantt-card" aria-label="중기배차계획 간트 캘린더">
+          <header class="gantt-toolbar"><div><button aria-label="이전 달" @click="moveDispatchCalendarMonth(-1)">‹</button><button @click="showDispatchToday">오늘</button><button aria-label="다음 달" @click="moveDispatchCalendarMonth(1)">›</button></div><h2>{{ dispatchCalendarLabel }}</h2><div class="gantt-legend"><span><i class="계획"></i>계획</span><span><i class="확정"></i>확정</span><span><i class="완료"></i>완료</span></div></header>
+          <div class="gantt-scroll">
+            <div class="gantt-grid" :style="{ '--gantt-days':dispatchCalendarDays.length }">
+              <div class="gantt-corner"><strong>호선 / 블록</strong><span>생산단계 · 장비</span></div>
+              <div class="gantt-days">
+                <div v-for="date in dispatchCalendarDays" :key="date.day" :class="{ weekend:date.weekend, today:date.today }"><strong>{{ date.day }}</strong><span>{{ date.weekday }}</span></div>
+              </div>
+              <template v-for="row in dispatchGanttRows" :key="row.plan.id">
+                <div class="gantt-row-label"><button @click="editDispatch(row.plan)"><strong>{{ row.plan.project }} · {{ row.plan.block }}</strong><span>{{ row.detail.rule.stage }} · {{ row.detail.rule.equipmentCode }} × {{ row.detail.rule.quantity }}</span></button></div>
+                <div class="gantt-timeline">
+                  <button class="gantt-bar" :class="row.plan.status" :style="{ left:`calc((${row.startDay - 1}) * var(--gantt-day-width) + 3px)`, width:`calc(${row.visibleDays} * var(--gantt-day-width) - 6px)` }" :title="`${row.detail.rule.task} · ${row.startDate} ~ ${row.endDate} · ${row.detail.requiredHours} HR`" @click="editDispatch(row.plan)">
+                    <strong>{{ row.detail.rule.task }}</strong><span>{{ row.detail.requiredHours }} HR</span>
+                  </button>
+                </div>
+              </template>
+            </div>
+            <p v-if="!dispatchGanttRows.length" class="gantt-empty">{{ dispatchCalendarLabel }}에 표시할 배차계획이 없습니다.</p>
+          </div>
+          <footer class="gantt-guide">막대 길이는 장비의 일 가동시간을 기준으로 계산되며, 계획을 클릭하면 바로 수정할 수 있습니다.</footer>
         </section>
         <div v-if="dispatchEditorOpen" class="editor-backdrop" @click.self="dispatchEditorOpen = false">
           <section class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="dispatch-editor-title">
