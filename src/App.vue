@@ -38,6 +38,8 @@ const vworldReady = ref(false)
 const vworldKey = import.meta.env.VITE_VWORLD_API_KEY || ''
 let vworldMap
 let vworldLayers = []
+let dashboardObjectLayer
+let dashboardSiteLayer
 const showSplitMapDialog = ref(false)
 const selectedSplitParcelId = ref('')
 const splitMapButtonElement = ref(null)
@@ -127,6 +129,21 @@ if (!physicalParcels.value.some(parcel => parcel.id === selectedPhysicalId.value
 if (!localStorage.getItem(PHYSICAL_PARCELS_STORAGE_KEY)) persistPhysicalParcels()
 const selectedPhysicalParcel = computed(() => physicalParcels.value.find(item => item.id === selectedPhysicalId.value))
 const physicalDraftParcel = computed(() => physicalParcels.value.find(item => item.draft))
+const dashboardObjects = [
+  { code:'MAT-12', type:'자재', label:'12', u:.20, v:.70 },
+  { code:'MAT-08', type:'자재', label:'8', u:.62, v:.24 },
+  { code:'A-12', type:'블록', label:'A12', u:.30, v:.32 },
+  { code:'B-04', type:'블록', label:'B04', u:.48, v:.68 },
+  { code:'C-08', type:'블록', label:'C08', u:.72, v:.38 },
+  { code:'OBS-01', type:'방해요소', label:'!', u:.39, v:.48 },
+  { code:'OBS-02', type:'방해요소', label:'!', u:.72, v:.72 },
+  { code:'F-03', type:'운송자원', label:'F3', u:.43, v:.42 },
+  { code:'CR-02', type:'운송자원', label:'CR2', u:.58, v:.74 },
+  { code:'TP-07', type:'운송자원', label:'TP7', u:.76, v:.54 },
+  { code:'G1', type:'주요시설', label:'G1', u:.12, v:.45 },
+  { code:'WH', type:'주요시설', label:'WH', u:.80, v:.36 },
+]
+const dashboardSiteParcel = computed(() => physicalParcels.value.find(parcel => !parcel.draft && parcel.enabled && parcel.name.trim() === '한화오션에코텍'))
 const physicalGridAddresses = computed(() => {
   if (!physicalGridSelection.value) return { start:'', end:'' }
   if (editingPhysicalId.value && physicalDraftParcel.value) {
@@ -556,11 +573,56 @@ function setVworldLayer() {
   })
   vworldReady.value = true
 }
+function pointInsideParcel(parcel,u,v) {
+  const [topLeft,topRight,bottomRight,bottomLeft] = parcel.points
+  const top = [topLeft[0] + (topRight[0] - topLeft[0]) * u,topLeft[1] + (topRight[1] - topLeft[1]) * u]
+  const bottom = [bottomLeft[0] + (bottomRight[0] - bottomLeft[0]) * u,bottomLeft[1] + (bottomRight[1] - bottomLeft[1]) * u]
+  return [top[0] + (bottom[0] - top[0]) * v,top[1] + (bottom[1] - top[1]) * v]
+}
+function dashboardMarkerIcon(item) {
+  const typeClass = { 자재:'material',블록:'block',방해요소:'obstacle',운송자원:'transport',주요시설:'facility' }[item.type]
+  const focusedClass = focusedCode.value === item.code ? ' focused' : ''
+  return L.divIcon({
+    className:'dashboard-marker-shell',
+    html:`<span class="dashboard-map-marker dashboard-map-marker--${typeClass}${focusedClass}">${item.label}</span>`,
+    iconSize:[34,34],iconAnchor:[17,17],
+  })
+}
+function renderDashboardObjects() {
+  if (!vworldMap) return
+  dashboardObjectLayer?.remove()
+  dashboardSiteLayer?.remove()
+  dashboardObjectLayer = L.layerGroup().addTo(vworldMap)
+  const parcel = dashboardSiteParcel.value
+  if (!parcel?.points?.length) return
+  dashboardSiteLayer = L.polygon(parcel.points,{ color:'#ed7100',weight:2,opacity:.9,fill:false,dashArray:'7 5',interactive:false,className:'dashboard-site-boundary' }).addTo(vworldMap)
+  const visibleObjects = dashboardObjects.filter(item => displayItems.value.includes(item.type))
+  if (!visibleObjects.length) return
+  if (vworldMap.getZoom() < 15.6) {
+    const counts = visibleObjects.reduce((result,item) => ({ ...result,[item.type]:(result[item.type] || 0) + 1 }),{})
+    const legend = Object.entries(counts).map(([type,count]) => `<span>${type} <b>${count}</b></span>`).join('')
+    const cluster = L.marker(pointInsideParcel(parcel,.5,.5),{
+      icon:L.divIcon({ className:'dashboard-cluster-shell',html:`<div class="dashboard-object-cluster"><strong>${visibleObjects.length}</strong><small>표시 객체</small><div>${legend}</div></div>`,iconSize:[150,112],iconAnchor:[75,56] }),
+      keyboard:true,title:`한화오션에코텍 표시 객체 ${visibleObjects.length}개`,alt:`한화오션에코텍 표시 객체 ${visibleObjects.length}개`,
+    })
+    cluster.addTo(dashboardObjectLayer)
+    return
+  }
+  visibleObjects.forEach(item => {
+    const marker = L.marker(pointInsideParcel(parcel,item.u,item.v),{
+      icon:dashboardMarkerIcon(item),keyboard:true,title:`${item.code} · ${item.type}`,alt:`${item.code} ${item.type}`,
+    })
+    if (objectDetails[item.code]) marker.on('click',() => showObjectDetails(item.code))
+    marker.addTo(dashboardObjectLayer)
+  })
+}
 function initializeVworldMap() {
   if (!vworldKey || !vworldMapElement.value || vworldMap) return
   vworldMap = createVworldLeafletMap(vworldMapElement.value)
   bindNativeMapView(vworldMap)
+  vworldMap.on('zoomend moveend',renderDashboardObjects)
   setVworldLayer()
+  renderDashboardObjects()
 }
 async function openSplitMapDialog() {
   selectedSplitParcelId.value = selectableSplitParcels.value[0]?.id || ''
@@ -769,6 +831,8 @@ function destroyVworldMap() {
   vworldMap?.remove()
   vworldMap = undefined
   vworldLayers = []
+  dashboardObjectLayer = undefined
+  dashboardSiteLayer = undefined
   vworldReady.value = false
   destroyAllSplitMaps()
 }
@@ -813,6 +877,8 @@ function showObjectDetails(code) {
   focusedCode.value = code
 }
 watch(mapType, () => { setVworldLayer(); setPhysicalVworldLayer() })
+watch(displayItems,renderDashboardObjects,{ deep:true })
+watch(focusedCode,renderDashboardObjects)
 watch(mapRotation, () => {
   if (!drawMode.value) return
   physicalGridSelection.value = null
@@ -933,12 +999,7 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             <div ref="mapContainer" class="map-stage" :class="{ 'has-vworld': vworldReady }">
             <div ref="vworldMapElement" class="vworld-map"></div>
             <div class="mock-map" :style="{ transform: `rotate(${mapRotation}deg)`, '--counter-rotation': `${-mapRotation}deg` }">
-              <div class="yard-operation-zone">
-                <div v-if="mapOptions.includes('CAD 도면')" class="cad-overlay"><i></i><i></i><i></i><i></i></div>
-                <template v-if="displayItems.includes('자재')"><button type="button" class="map-object material ma1" :class="{ focused: focusedCode === 'MAT-12' }" title="MAT-12 · 입고 자재" @click="showObjectDetails('MAT-12')">12</button><button type="button" class="map-object material ma2" :class="{ focused: focusedCode === 'MAT-08' }" title="MAT-08 · 입고 자재" @click="showObjectDetails('MAT-08')">8</button></template>
-                <template v-if="displayItems.includes('방해요소')"><span class="map-object obstacle ob1" :class="{ focused: focusedCode === 'OBS-01' }" title="OBS-01 · 통행 방해요소">!</span><span class="map-object obstacle ob2" :class="{ focused: focusedCode === 'OBS-02' }" title="OBS-02 · 통행 방해요소">!</span></template>
-                <template v-if="displayItems.includes('주요시설')"><span class="map-object facility fa1" :class="{ focused: focusedCode === 'G1' }" title="G1 · 제1 게이트">G1</span><span class="map-object facility fa2" :class="{ focused: focusedCode === 'WH' }" title="WH · 자재 창고">WH</span></template>
-              </div>
+              <div v-if="mapOptions.includes('CAD 도면')" class="cad-overlay"><i></i><i></i><i></i><i></i></div>
             </div>
               <div v-if="!vworldKey" class="vworld-key-notice"><strong>VWorld 지도 준비됨</strong><span>API 인증키를 등록하면 실제 지도가 표시됩니다.</span></div>
               <form class="map-search" role="search" @submit.prevent="focusMapObject">
