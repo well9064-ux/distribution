@@ -1,8 +1,13 @@
 .submenu-arrow { margin-left: auto; font-size: 10px; color: #999; }
 .submenu-list { display: flex; flex-direction: column; gap: 2px; padding: 0 0 4px; }
-.submenu-list button { height: 38px; padding-left: 42px; font-size: 12px; }
+.submenu-list button { width: 100%; min-height: 38px; height: auto; padding: 9px 10px 9px 42px; font-size: 12px; line-height: 1.35; }
+.submenu-list button > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.submenu-list button.has-children { justify-content: space-between; }
+.submenu-list--third { margin: 0 0 2px 28px; padding-left: 8px; border-left: 1px solid #ededed; }
+.submenu-list--third button { min-height: 34px; padding: 7px 8px 7px 22px; color: #777; font-size: 11px; white-space: normal; }
 .submenu-list button.active { color: #2d2d2d; font-weight: 700; background: #fcf5ef; }
 .submenu-list button.active::before { left: -8px; height: 22px; }
+.menu-list { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #d9d9d9 transparent; }
 
 .physical-page { height: calc(100vh - 64px); padding: 16px 24px 24px; display: flex; flex-direction: column; overflow: hidden; }
 .physical-page-header { min-height: 54px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }

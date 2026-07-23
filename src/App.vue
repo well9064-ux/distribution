@@ -69,14 +69,39 @@ const objectDetails = {
 
 const menus = [
   { label: '대시보드', icon: LayoutDashboard },
-  { label: '지번관리', icon: MapPin },
-  { label: '자재관리', icon: Package },
+  { label: '지번관리', icon: MapPin, children: [
+    { label: '물리지번 목록' },
+    { label: '논리지번 목록' },
+    { label: '지번목록 조회' },
+    { label: '활용계획 관리' },
+  ] },
+  { label: '자재관리', icon: Package, children: [
+    { label: '입고예정정보', children: [
+      { label: '의장재' },
+      { label: '기기장비재' },
+      { label: '강재' },
+    ] },
+    { label: '재고가용성정보' },
+    { label: '핵심자재관리' },
+    { label: '적치위치관리' },
+  ] },
   { label: '블록관리', icon: Box },
-  { label: '운송수단관리', icon: Truck },
-  { label: '시스템관리', icon: Settings },
+  { label: '운송수단관리', icon: Truck, children: [
+    { label: '중기배차신청' },
+    { label: '중기배차계획' },
+    { label: '배차실적' },
+    { label: '운송부하율관리', children: [
+      { label: '부하율마스터관리' },
+      { label: '운송자원별 부하율 분석/통계' },
+    ] },
+    { label: '장비가동률' },
+  ] },
+  { label: '시스템관리', icon: Settings, children: [
+    { label: '히스토리 관리' },
+    { label: '사용자권한 관리' },
+  ] },
 ]
-const landSubmenus = ['물리지번 목록', '논리지번 목록', '지번 목록', '활용계획']
-const landMenuOpen = ref(false)
+const openMenus = ref(['지번관리'])
 const physicalMapElement = ref(null)
 const physicalMapContainer = ref(null)
 const selectedPhysicalId = ref('PHY-316')
@@ -161,14 +186,27 @@ async function login() {
   await nextTick()
   initializeVworldMap()
 }
-async function selectMenu(label) {
-  if (label === '지번관리') return selectLandSubmenu('물리지번 목록')
-  activeMenu.value = label
-  landMenuOpen.value = false
+function isMenuOpen(label) {
+  return openMenus.value.includes(label)
 }
-async function selectLandSubmenu(label) {
+function toggleMenu(label) {
+  openMenus.value = isMenuOpen(label)
+    ? openMenus.value.filter(item => item !== label)
+    : [...openMenus.value, label]
+}
+function menuContainsActive(menu) {
+  return menu.label === activeMenu.value || menu.children?.some(menuContainsActive)
+}
+async function selectMenu(menu) {
+  if (menu.children?.length) {
+    if (collapsed.value) return selectMenuItem(menu.children[0].children?.[0]?.label || menu.children[0].label)
+    toggleMenu(menu.label)
+    return
+  }
+  return selectMenuItem(menu.label)
+}
+async function selectMenuItem(label) {
   activeMenu.value = label
-  landMenuOpen.value = true
   if (label === '물리지번 목록') {
     await nextTick()
     initializePhysicalMap()
@@ -958,11 +996,38 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
       <nav class="menu-list" aria-label="주 메뉴">
         <template v-for="menu in menus" :key="menu.label">
-          <button :class="{ active: activeMenu === menu.label }" :title="collapsed ? menu.label : undefined" :aria-label="menu.label" @click="selectMenu(menu.label)">
-            <component :is="menu.icon" class="menu-icon" aria-hidden="true" /><span v-if="!collapsed">{{ menu.label }}</span><span v-if="menu.label === '지번관리' && !collapsed" class="submenu-arrow">{{ landMenuOpen ? '⌃' : '⌄' }}</span>
+          <button
+            :class="{ active: menuContainsActive(menu) }"
+            :title="collapsed ? menu.label : undefined"
+            :aria-label="menu.label"
+            :aria-expanded="menu.children ? isMenuOpen(menu.label) : undefined"
+            @click="selectMenu(menu)"
+          >
+            <component :is="menu.icon" class="menu-icon" aria-hidden="true" />
+            <span v-if="!collapsed">{{ menu.label }}</span>
+            <span v-if="menu.children && !collapsed" class="submenu-arrow">{{ isMenuOpen(menu.label) ? '⌃' : '⌄' }}</span>
           </button>
-          <div v-if="menu.label === '지번관리' && landMenuOpen && !collapsed" class="submenu-list">
-            <button v-for="submenu in landSubmenus" :key="submenu" :class="{ active: activeMenu === submenu }" @click.stop="selectLandSubmenu(submenu)">{{ submenu }}</button>
+          <div v-if="menu.children && isMenuOpen(menu.label) && !collapsed" class="submenu-list">
+            <template v-for="submenu in menu.children" :key="submenu.label">
+              <button
+                :class="{ active: menuContainsActive(submenu), 'has-children': submenu.children }"
+                :aria-expanded="submenu.children ? isMenuOpen(submenu.label) : undefined"
+                @click.stop="submenu.children ? toggleMenu(submenu.label) : selectMenuItem(submenu.label)"
+              >
+                <span>{{ submenu.label }}</span>
+                <span v-if="submenu.children" class="submenu-arrow">{{ isMenuOpen(submenu.label) ? '⌃' : '⌄' }}</span>
+              </button>
+              <div v-if="submenu.children && isMenuOpen(submenu.label)" class="submenu-list submenu-list--third">
+                <button
+                  v-for="thirdMenu in submenu.children"
+                  :key="thirdMenu.label"
+                  :class="{ active: activeMenu === thirdMenu.label }"
+                  @click.stop="selectMenuItem(thirdMenu.label)"
+                >
+                  {{ thirdMenu.label }}
+                </button>
+              </div>
+            </template>
           </div>
         </template>
       </nav>
