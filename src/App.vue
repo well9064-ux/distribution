@@ -95,6 +95,11 @@ const menus = [
       { label: '운송자원별 부하율 분석/통계' },
     ] },
     { label: '장비가동률' },
+    { label: '운송자원정보관리', children: [
+      { label: '운송자원마스터관리' },
+      { label: '유류실적 관리' },
+      { label: '치구 마스터 관리' },
+    ] },
   ] },
   { label: '시스템관리', icon: Settings, children: [
     { label: '히스토리 관리' },
@@ -201,22 +206,34 @@ const tpLoadResourceSeeds = [
   { pcg:'FD#6', spec:'240', code:'FD240', standardHours:2 },
 ]
 const LOAD_MASTER_STORAGE_KEY = 'hanwha-load-masters-v1'
+const LOAD_CRANE_MIGRATION_KEY = 'hanwha-load-crane-migration-v1'
 const DISPATCH_PLAN_STORAGE_KEY = 'hanwha-dispatch-plans-v1'
 const defaultEquipmentMasters = [
   { id:'EQ-021', code:'TP021', name:'21톤 TP', category:'TP', spec:'021', capacity:21, ownedCount:3, dailyHours:8, availability:90, enabled:true },
   { id:'EQ-032', code:'TP032', name:'32톤 TP', category:'TP', spec:'032', capacity:32, ownedCount:3, dailyHours:8, availability:90, enabled:true },
   { id:'EQ-050', code:'TP050', name:'50톤 TP', category:'TP', spec:'050', capacity:50, ownedCount:2, dailyHours:8, availability:85, enabled:true },
   { id:'EQ-240', code:'TP240', name:'240톤 TP', category:'TP', spec:'240', capacity:240, ownedCount:1, dailyHours:8, availability:85, enabled:true },
+  { id:'EQ-CR050', code:'CR050', name:'50톤 크레인', category:'크레인', spec:'050', capacity:50, dailyHours:8, availability:85, enabled:true },
+  { id:'EQ-CR100', code:'CR100', name:'100톤 크레인', category:'크레인', spec:'100', capacity:100, dailyHours:8, availability:85, enabled:true },
+  { id:'EQ-CR250', code:'CR250', name:'250톤 크레인', category:'크레인', spec:'250', capacity:250, dailyHours:8, availability:80, enabled:true },
 ]
 const defaultStandardTimeMasters = tpLoadResourceSeeds.map((item, index) => ({
   id:`ST-${String(index + 1).padStart(3,'0')}`, pcg:item.pcg, equipmentCode:`TP${item.spec}`, hours:item.standardHours,
-}))
+})).concat([
+  { id:'ST-CR001', pcg:'LNGC DK', equipmentCode:'CR050', hours:1.2 },
+  { id:'ST-CR002', pcg:'LNGC DK', equipmentCode:'CR100', hours:1.8 },
+  { id:'ST-CR003', pcg:'CMR', equipmentCode:'CR100', hours:1.5 },
+  { id:'ST-CR004', pcg:'LNGC TBHD', equipmentCode:'CR250', hours:2.8 },
+])
 const defaultDispatchRuleMasters = [
   { id:'RL-001', pcg:'LNGC DK', stage:'중조', task:'중조주판 반출', triggerStage:'중조', triggerPoint:'착수', offsetDays:3, equipmentCode:'TP021', quantity:1 },
   { id:'RL-002', pcg:'LNGC DK', stage:'대조', task:'대조주판 배치', triggerStage:'대조', triggerPoint:'착수', offsetDays:1, equipmentCode:'TP050', quantity:1 },
   { id:'RL-003', pcg:'LNGC DK', stage:'대조', task:'중조 이동 탑재', triggerStage:'대조', triggerPoint:'착수', offsetDays:2, equipmentCode:'TP032', quantity:1 },
   { id:'RL-004', pcg:'CMR', stage:'도장', task:'전처리 입고', triggerStage:'도장', triggerPoint:'착수', offsetDays:-1, equipmentCode:'TP050', quantity:1 },
   { id:'RL-005', pcg:'LNGC TBHD', stage:'PE', task:'후PE 착수', triggerStage:'PE', triggerPoint:'착수', offsetDays:0, equipmentCode:'TP240', quantity:1 },
+  { id:'RL-006', pcg:'LNGC DK', stage:'중조', task:'중조 블록 인양', triggerStage:'중조', triggerPoint:'착수', offsetDays:0, equipmentCode:'CR050', quantity:1 },
+  { id:'RL-007', pcg:'LNGC DK', stage:'대조', task:'대조 블록 탑재', triggerStage:'대조', triggerPoint:'착수', offsetDays:0, equipmentCode:'CR100', quantity:1 },
+  { id:'RL-008', pcg:'LNGC TBHD', stage:'PE', task:'PE 블록 인양', triggerStage:'PE', triggerPoint:'착수', offsetDays:0, equipmentCode:'CR250', quantity:1 },
 ]
 function loadStoredData(key, fallback) {
   try {
@@ -225,9 +242,33 @@ function loadStoredData(key, fallback) {
   } catch { return fallback }
 }
 const storedLoadMasters = loadStoredData(LOAD_MASTER_STORAGE_KEY, null)
-const equipmentMasters = ref(storedLoadMasters?.equipment || JSON.parse(JSON.stringify(defaultEquipmentMasters)))
-const standardTimeMasters = ref(storedLoadMasters?.standardTimes || JSON.parse(JSON.stringify(defaultStandardTimeMasters)))
-const dispatchRuleMasters = ref(storedLoadMasters?.rules || JSON.parse(JSON.stringify(defaultDispatchRuleMasters)))
+function mergeMissingDefaults(storedItems, defaultItems, key = 'id') {
+  if (!storedItems?.length) return JSON.parse(JSON.stringify(defaultItems))
+  const values = new Set(storedItems.map(item => item[key]))
+  return [...storedItems, ...defaultItems.filter(item => !values.has(item[key])).map(item => JSON.parse(JSON.stringify(item)))]
+}
+const needsCraneMigration = !localStorage.getItem(LOAD_CRANE_MIGRATION_KEY)
+const equipmentMasters = ref(needsCraneMigration
+  ? mergeMissingDefaults(storedLoadMasters?.equipment, defaultEquipmentMasters, 'code')
+  : (storedLoadMasters?.equipment || JSON.parse(JSON.stringify(defaultEquipmentMasters))))
+const standardTimeMasters = ref(needsCraneMigration
+  ? mergeMissingDefaults(storedLoadMasters?.standardTimes, defaultStandardTimeMasters)
+  : (storedLoadMasters?.standardTimes || JSON.parse(JSON.stringify(defaultStandardTimeMasters))))
+const dispatchRuleMasters = ref(needsCraneMigration
+  ? mergeMissingDefaults(storedLoadMasters?.rules, defaultDispatchRuleMasters)
+  : (storedLoadMasters?.rules || JSON.parse(JSON.stringify(defaultDispatchRuleMasters))))
+if (needsCraneMigration) {
+  localStorage.setItem(LOAD_MASTER_STORAGE_KEY, JSON.stringify({
+    equipment:equipmentMasters.value,
+    standardTimes:standardTimeMasters.value,
+    rules:dispatchRuleMasters.value,
+  }))
+  localStorage.setItem(LOAD_CRANE_MIGRATION_KEY, 'complete')
+}
+const pcgMasterOptions = computed(() => [...new Set([
+  ...standardTimeMasters.value.map(item => item.pcg),
+  ...dispatchRuleMasters.value.map(item => item.pcg),
+].filter(Boolean))].sort((a,b) => a.localeCompare(b)))
 const defaultDispatchPlans = [
   { id:'DP-001', project:'HNOE-3101', block:'A12-01', ruleId:'RL-001', baseDate:'2026-07-06', status:'계획' },
   { id:'DP-002', project:'HNOE-3101', block:'A12-02', ruleId:'RL-002', baseDate:'2026-07-10', status:'확정' },
@@ -245,14 +286,22 @@ const dispatchEditorOpen = ref(false)
 const dispatchEditingId = ref('')
 const dispatchForm = ref({})
 const dispatchNotice = ref('')
+const dispatchUploadOpen = ref(false)
+const dispatchUploadFileName = ref('')
+const dispatchUploadRows = ref([])
+const dispatchUploadNotice = ref('')
+let xlsxModulePromise
 const dispatchStageFilter = ref('전체')
 const dispatchView = ref('list')
 const dispatchCalendarMonth = ref(new Date().toISOString().slice(0,7))
+const dispatchCalendarMode = ref('gantt')
 const loadResources = computed(() => standardTimeMasters.value.map(item => {
   const equipment = equipmentMasters.value.find(master => master.code === item.equipmentCode)
-  return { pcg:item.pcg, spec:equipment?.spec || item.equipmentCode.replace(/\D/g,''), code:item.equipmentCode, equipmentCode:item.equipmentCode, standardHours:Number(item.hours) || 0 }
+  return { pcg:item.pcg, category:equipment?.category || '기타', name:equipment?.name || item.equipmentCode, spec:equipment?.spec || item.equipmentCode.replace(/\D/g,''), code:item.equipmentCode, equipmentCode:item.equipmentCode, standardHours:Number(item.hours) || 0 }
 }))
 const loadPlanPcgs = computed(() => ['전체', ...new Set(loadResources.value.map(item => item.pcg))])
+const loadPlanEquipmentTypes = computed(() => ['전체', ...new Set(loadResources.value.map(item => item.category))])
+const loadPlanEquipmentType = ref('전체')
 const loadPlanPeriods = computed(() => loadPlanView.value === 'month'
   ? Array.from({ length:12 }, (_, index) => ({ key:index + 1, label:`${index + 1}월` }))
   : Array.from({ length:53 }, (_, index) => ({ key:index + 1, label:`${index + 1}주` })))
@@ -260,7 +309,8 @@ const filteredLoadResources = computed(() => {
   const keyword = loadPlanKeyword.value.trim().toLowerCase()
   return loadResources.value.filter(item =>
     (loadPlanPcg.value === '전체' || item.pcg === loadPlanPcg.value)
-    && (!keyword || `${item.pcg} ${item.spec} ${item.code}`.toLowerCase().includes(keyword)))
+    && (loadPlanEquipmentType.value === '전체' || item.category === loadPlanEquipmentType.value)
+    && (!keyword || `${item.pcg} ${item.category} ${item.name} ${item.spec} ${item.code}`.toLowerCase().includes(keyword)))
 })
 function loadPlanHours(resource, period) {
   return Number(dispatchPlans.value.reduce((sum, plan) => {
@@ -287,6 +337,66 @@ const loadPlanPeriodTotals = computed(() => loadPlanPeriods.value.map(period => 
 const loadPlanPeak = computed(() => loadPlanPeriodTotals.value.reduce((peak, item) => item.total > peak.total ? item : peak, { label:'-', total:0 }))
 const loadPlanOverloads = computed(() => filteredLoadResources.value.reduce((sum, resource) =>
   sum + loadPlanPeriods.value.filter(period => loadPlanCellClass(loadPlanHours(resource, period.key)) === 'critical').length, 0))
+const tpAnalysisMonth = ref(7)
+const tpAnalysisEquipment = ref('전체')
+const tpAnalysisCategory = ref('전체')
+const tpAnalysisMonths = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
+const tpLoadReferenceRows = [
+  { type:'TP', code:'TP060', spec:'60톤', required:[0,0,0,0,0,33.6,58.8,60,79.8,105.6,101,112.9], available:[0,0,0,0,97.2,113.4,124.2,81,108,108,113.4,118.8] },
+  { type:'TP', code:'TP100', spec:'100톤', required:[0,0,0,0,0,25.8,43.8,38.4,54,62.4,61.2,69], available:[0,0,0,0,97.2,113.4,124.2,81,108,108,113.4,118.8] },
+  { type:'TP', code:'TP210', spec:'210톤', required:[78,78.8,66.8,39.8,57.8,55.5,87.8,72.8,108,147,141,133.5], available:[113.4,91.8,113.4,118.8,97.2,113.4,124.2,81,108,108,113.4,118.8] },
+  { type:'TP', code:'TP320', spec:'320톤', required:[131.3,158.5,119,166.5,178.5,178.8,260.3,151.3,257.8,276.6,265.7,277.7], available:[132.3,107.1,132.3,138.6,105.3,245.7,269.1,175.5,234,234,245.7,257.4] },
+  { type:'TP', code:'TP500', spec:'500톤', required:[122.2,74.2,37.8,63.4,142.8,155.4,146.2,85.4,95.9,88.2,79.1,83.3], available:[132.3,107.1,132.3,138.6,113.4,132.3,144.9,94.5,117,117,122.9,128.7] },
+  { type:'TP', code:'TP2400', spec:'2,400톤', required:[23.5,234.5,115.5,16.5,14,40,50.5,51,80.5,64.5,76.5,78], available:[113.4,91.8,113.4,118.8,97.2,113.4,124.2,81,108,108,113.4,118.8] },
+  { type:'크레인', code:'CR050', spec:'50톤', required:[28,32,35,42,48,55,61,58,64,70,68,72], available:[108,96,108,112,104,112,120,88,112,112,116,120] },
+  { type:'크레인', code:'CR100', spec:'100톤', required:[44,52,49,61,72,78,86,74,92,98,94,102], available:[108,96,108,112,104,112,120,88,112,112,116,120] },
+  { type:'크레인', code:'CR250', spec:'250톤', required:[72,84,78,96,108,116,132,105,138,146,141,152], available:[108,96,108,112,104,112,120,88,112,112,116,120] },
+]
+const tpAnalysisRows = computed(() => tpLoadReferenceRows.map(row => {
+  const monthIndex = tpAnalysisMonth.value - 1
+  const required = Number(row.required[monthIndex] || 0)
+  const available = Number(row.available[monthIndex] || 0)
+  return {
+    ...row, required, available,
+    loadRate:available ? required / available * 100 : 0,
+    annualRequired:row.required.reduce((sum,value) => sum + value,0),
+    annualAvailable:row.available.reduce((sum,value) => sum + value,0),
+  }
+}))
+const tpAnalysisCategoryRows = computed(() => tpAnalysisRows.value.filter(row =>
+  tpAnalysisCategory.value === '전체' || row.type === tpAnalysisCategory.value))
+const tpAnalysisEquipmentOptions = computed(() => tpLoadReferenceRows.filter(row =>
+  tpAnalysisCategory.value === '전체' || row.type === tpAnalysisCategory.value))
+const tpAnalysisFilteredRows = computed(() => tpAnalysisCategoryRows.value.filter(row =>
+  tpAnalysisEquipment.value === '전체' || row.code === tpAnalysisEquipment.value))
+const tpMonthlyTotals = computed(() => tpAnalysisMonths.map((label,index) => {
+  const rows = tpLoadReferenceRows.filter(row =>
+    (tpAnalysisCategory.value === '전체' || row.type === tpAnalysisCategory.value)
+    && (tpAnalysisEquipment.value === '전체' || row.code === tpAnalysisEquipment.value))
+  const required = rows.reduce((sum,row) => sum + row.required[index],0)
+  const available = rows.reduce((sum,row) => sum + row.available[index],0)
+  return { label, required, available, rate:available ? required / available * 100 : 0 }
+}))
+const tpSelectedSummary = computed(() => {
+  const rows = tpAnalysisFilteredRows.value
+  const required = rows.reduce((sum,row) => sum + row.required,0)
+  const available = rows.reduce((sum,row) => sum + row.available,0)
+  return {
+    required, available,
+    rate:available ? required / available * 100 : 0,
+    overloads:rows.filter(row => row.loadRate > 100).length,
+  }
+})
+const tpAnalysisPeak = computed(() => tpMonthlyTotals.value.reduce((peak,item) => item.rate > peak.rate ? item : peak, { label:'-', rate:0 }))
+const tpChartMax = computed(() => Math.max(...tpMonthlyTotals.value.flatMap(item => [item.required,item.available]),1))
+function tpBarHeight(value) {
+  return `${Math.max(2, value / tpChartMax.value * 100)}%`
+}
+function tpRateClass(rate) {
+  if (rate > 100) return 'critical'
+  if (rate >= 80) return 'warning'
+  return 'normal'
+}
 function formatPlanHours(value) {
   return new Intl.NumberFormat('ko-KR', { maximumFractionDigits:1 }).format(value)
 }
@@ -308,8 +418,8 @@ function openMasterCreate() {
   masterForm.value = masterTab.value === 'equipment'
     ? { code:'', name:'', category:'TP', spec:'', capacity:0, ownedCount:1, dailyHours:8, availability:90, enabled:true }
     : masterTab.value === 'time'
-      ? { pcg:'', equipmentCode:equipmentMasters.value[0]?.code || '', hours:1 }
-      : { pcg:'', stage:'중조', task:'', triggerStage:'중조', triggerPoint:'착수', offsetDays:0, equipmentCode:equipmentMasters.value[0]?.code || '', quantity:1 }
+      ? { pcg:pcgMasterOptions.value[0] || '', equipmentCode:equipmentMasters.value[0]?.code || '', hours:1 }
+      : { pcg:pcgMasterOptions.value[0] || '', stage:'중조', task:'', triggerStage:'중조', triggerPoint:'착수', offsetDays:0, equipmentCode:equipmentMasters.value[0]?.code || '', quantity:1 }
   masterEditorOpen.value = true
 }
 function editMaster(item) {
@@ -321,12 +431,10 @@ function editMaster(item) {
 function saveMaster() {
   const form = JSON.parse(JSON.stringify(masterForm.value))
   if (masterTab.value === 'equipment') {
-    if (!form.code.trim() || !form.name.trim() || !form.spec.trim()) return (masterNotice.value = '장비코드, 장비명, 규격을 입력해주세요.')
-    const duplicate = equipmentMasters.value.some(item => item.code === form.code && item.id !== masterEditingId.value)
-    if (duplicate) return (masterNotice.value = '이미 등록된 장비코드입니다.')
-    form.id = masterEditingId.value || nextEntityId('EQ', equipmentMasters.value)
+    if (!masterEditingId.value) return (masterNotice.value = '운송자원정보관리에서 연계된 장비만 가동기준을 설정할 수 있습니다.')
+    if (Number(form.dailyHours) < 1 || Number(form.dailyHours) > 24 || Number(form.availability) < 0 || Number(form.availability) > 100) return (masterNotice.value = '일 가동시간은 1~24시간, 가동률은 0~100% 범위로 입력해주세요.')
     const index = equipmentMasters.value.findIndex(item => item.id === form.id)
-    index >= 0 ? equipmentMasters.value.splice(index,1,form) : equipmentMasters.value.push(form)
+    if (index >= 0) equipmentMasters.value.splice(index,1,form)
   } else if (masterTab.value === 'time') {
     if (!form.pcg.trim() || !form.equipmentCode || Number(form.hours) <= 0) return (masterNotice.value = 'PCG, 장비, 표준시간을 입력해주세요.')
     const duplicate = standardTimeMasters.value.some(item => item.pcg === form.pcg && item.equipmentCode === form.equipmentCode && item.id !== masterEditingId.value)
@@ -449,6 +557,76 @@ function saveDispatch() {
 function deleteDispatch(plan) {
   dispatchPlans.value = dispatchPlans.value.filter(item => item.id !== plan.id)
   persistDispatchPlans()
+}
+function openDispatchUpload() {
+  dispatchUploadFileName.value = ''
+  dispatchUploadRows.value = []
+  dispatchUploadNotice.value = ''
+  dispatchUploadOpen.value = true
+}
+function normalizeDispatchExcelDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0,10)
+  if (typeof value === 'number') {
+    const excelDate = new Date(Date.UTC(1899,11,30) + value * 86400000)
+    if (!Number.isNaN(excelDate.getTime())) return excelDate.toISOString().slice(0,10)
+  }
+  const text = String(value || '').trim().replace(/[./]/g,'-')
+  const match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  return match ? `${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}` : ''
+}
+async function handleDispatchExcelUpload(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  dispatchUploadFileName.value = file.name
+  dispatchUploadNotice.value = ''
+  try {
+    const XLSX = await (xlsxModulePromise ||= import('xlsx'))
+    const workbook = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    const sourceRows = XLSX.utils.sheet_to_json(sheet, { defval:'' })
+    dispatchUploadRows.value = sourceRows.map((source,index) => {
+      const pick = (...keys) => keys.map(key => source[key]).find(value => value !== undefined && value !== '') ?? ''
+      const project = String(pick('호선','호선번호','project')).trim()
+      const block = String(pick('블록','블록번호','block')).trim()
+      const ruleId = String(pick('배차규칙ID','배차규칙','ruleId')).trim()
+      const baseDate = normalizeDispatchExcelDate(pick('기준일','생산계획 기준일','baseDate'))
+      const rawStatus = String(pick('상태','status') || '계획').trim()
+      const status = ['계획','확정','완료'].includes(rawStatus) ? rawStatus : '계획'
+      const errors = []
+      if (!project) errors.push('호선 누락')
+      if (!block) errors.push('블록 누락')
+      if (!dispatchRuleMasters.value.some(rule => rule.id === ruleId)) errors.push('배차규칙ID 불일치')
+      if (!baseDate) errors.push('기준일 형식 오류')
+      return { rowNumber:index + 2, project, block, ruleId, baseDate, status, errors }
+    })
+    if (!sourceRows.length) dispatchUploadNotice.value = '첫 번째 시트에 등록할 데이터가 없습니다.'
+  } catch {
+    dispatchUploadRows.value = []
+    dispatchUploadNotice.value = '엑셀 파일을 읽을 수 없습니다. 파일 형식과 첫 번째 시트를 확인해주세요.'
+  }
+}
+const validDispatchUploadRows = computed(() => dispatchUploadRows.value.filter(row => !row.errors.length))
+function importDispatchExcelRows() {
+  if (!validDispatchUploadRows.value.length) return (dispatchUploadNotice.value = '등록 가능한 정상 행이 없습니다.')
+  validDispatchUploadRows.value.forEach(row => {
+    dispatchPlans.value.push({
+      id:nextEntityId('DP', dispatchPlans.value),
+      project:row.project, block:row.block, ruleId:row.ruleId, baseDate:row.baseDate, status:row.status,
+    })
+  })
+  persistDispatchPlans()
+  dispatchUploadOpen.value = false
+}
+async function downloadDispatchTemplate() {
+  const XLSX = await (xlsxModulePromise ||= import('xlsx'))
+  const rows = [
+    ['호선','블록','배차규칙ID','기준일','상태'],
+    ['HNOE-3101','A12-01',dispatchRuleMasters.value[0]?.id || 'RL-001','2026-07-24','계획'],
+  ]
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), '배차계획 업로드')
+  XLSX.writeFile(workbook, '중기배차계획_업로드_양식.xlsx')
 }
 const now = computed(() => new Intl.DateTimeFormat('ko-KR', {
   year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short'
@@ -1472,13 +1650,14 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       <div v-else-if="activeMenu === '부하율마스터관리'" class="management-page">
         <header class="management-header">
           <div><h1>부하율 마스터 관리</h1><p>자동배차와 부하율 계산에 사용하는 기준정보를 관리합니다.</p></div>
-          <button class="primary-small" type="button" @click="openMasterCreate">＋ {{ masterTab === 'rule' ? '배차규칙' : masterTab === 'equipment' ? '장비' : '표준시간' }} 등록</button>
+          <button v-if="masterTab !== 'equipment'" class="primary-small" type="button" @click="openMasterCreate">＋ {{ masterTab === 'rule' ? '배차규칙' : '표준시간' }} 등록</button>
         </header>
         <nav class="master-tabs" aria-label="부하율 마스터 유형">
           <button :class="{ active: masterTab === 'rule' }" @click="masterTab = 'rule'; masterNotice = ''"><strong>운송작업 규칙</strong><span>{{ dispatchRuleMasters.length }}건</span><small>생산단계별 장비 투입시점</small></button>
-          <button :class="{ active: masterTab === 'equipment' }" @click="masterTab = 'equipment'; masterNotice = ''"><strong>장비 마스터</strong><span>{{ equipmentMasters.length }}건</span><small>TP·크레인 규격과 가용시간</small></button>
+          <button :class="{ active: masterTab === 'equipment' }" @click="masterTab = 'equipment'; masterNotice = ''"><strong>운송자원 연계정보</strong><span>{{ equipmentMasters.length }}건</span><small>운송자원정보관리 데이터 참조</small></button>
           <button :class="{ active: masterTab === 'time' }" @click="masterTab = 'time'; masterNotice = ''"><strong>표준시간 마스터</strong><span>{{ standardTimeMasters.length }}건</span><small>PCG·장비별 기준 작업시간</small></button>
         </nav>
+        <p v-if="masterTab === 'equipment'" class="master-link-notice"><strong>운송자원정보관리 연계</strong><span>장비코드·장비명·장비구분·적재톤수는 연계하고, 부하율 계산에 필요한 일 가동시간과 가동률은 이 화면에서 설정합니다.</span></p>
         <p v-if="masterNotice" class="management-notice" role="alert">{{ masterNotice }}</p>
         <section class="management-card">
           <table v-if="masterTab === 'rule'" class="management-table">
@@ -1486,8 +1665,8 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             <tbody><tr v-for="item in dispatchRuleMasters" :key="item.id"><td>{{ item.id }}</td><td>{{ item.pcg }}</td><td>{{ item.stage }}</td><td>{{ item.task }}</td><td>{{ item.triggerStage }} {{ item.triggerPoint }}</td><td>{{ Number(item.offsetDays) > 0 ? '+' : '' }}{{ item.offsetDays }}일</td><td>{{ item.equipmentCode }}</td><td>{{ item.quantity }}대</td><td class="row-actions"><button @click="editMaster(item)">수정</button><button class="delete" @click="deleteMaster(item)">삭제</button></td></tr></tbody>
           </table>
           <table v-else-if="masterTab === 'equipment'" class="management-table">
-            <thead><tr><th>ID</th><th>장비코드</th><th>장비명</th><th>구분</th><th>규격</th><th>보유대수</th><th>일 가동시간</th><th>가동률</th><th>사용여부</th><th>관리</th></tr></thead>
-            <tbody><tr v-for="item in equipmentMasters" :key="item.id"><td>{{ item.id }}</td><td><strong>{{ item.code }}</strong></td><td>{{ item.name }}</td><td>{{ item.category }}</td><td>{{ item.spec }}</td><td>{{ item.ownedCount }}대</td><td>{{ item.dailyHours }}HR</td><td>{{ item.availability }}%</td><td><span class="use-chip" :class="{ off:!item.enabled }">{{ item.enabled ? '사용' : '미사용' }}</span></td><td class="row-actions"><button @click="editMaster(item)">수정</button><button class="delete" @click="deleteMaster(item)">삭제</button></td></tr></tbody>
+            <thead><tr><th>연계 ID</th><th>장비코드</th><th>장비명</th><th>장비구분</th><th>적재톤수</th><th>일 가동시간</th><th>가동률</th><th>사용여부</th><th>관리</th></tr></thead>
+            <tbody><tr v-for="item in equipmentMasters" :key="item.id"><td>{{ item.id }}</td><td><strong>{{ item.code }}</strong></td><td>{{ item.name }}</td><td>{{ item.category }}</td><td>{{ item.capacity }}톤</td><td><strong class="orange-text">{{ item.dailyHours }}HR</strong></td><td><strong class="orange-text">{{ item.availability }}%</strong></td><td><span class="use-chip" :class="{ off:!item.enabled }">{{ item.enabled ? '사용' : '미사용' }}</span></td><td class="row-actions"><button @click="editMaster(item)">가동기준 설정</button></td></tr></tbody>
           </table>
           <table v-else class="management-table">
             <thead><tr><th>ID</th><th>PCG</th><th>장비코드</th><th>장비명</th><th>표준시간</th><th>관리</th></tr></thead>
@@ -1496,20 +1675,19 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
         </section>
         <div v-if="masterEditorOpen" class="editor-backdrop" @click.self="masterEditorOpen = false">
           <section class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="master-editor-title">
-            <header><div><span>{{ masterEditingId ? '기준정보 수정' : '신규 기준정보' }}</span><h2 id="master-editor-title">{{ masterTab === 'rule' ? '운송작업 규칙' : masterTab === 'equipment' ? '장비 마스터' : '표준시간 마스터' }}</h2></div><button aria-label="등록창 닫기" @click="masterEditorOpen = false">×</button></header>
+            <header><div><span>{{ masterEditingId ? '기준정보 수정' : '신규 기준정보' }}</span><h2 id="master-editor-title">{{ masterTab === 'rule' ? '운송작업 규칙' : masterTab === 'equipment' ? '장비 가동기준 설정' : '표준시간 마스터' }}</h2></div><button aria-label="등록창 닫기" @click="masterEditorOpen = false">×</button></header>
             <div v-if="masterTab === 'equipment'" class="editor-fields">
-              <label>장비코드<input v-model.trim="masterForm.code" placeholder="예: TP032" /></label><label>장비명<input v-model.trim="masterForm.name" placeholder="예: 32톤 TP" /></label>
-              <label>장비구분<select v-model="masterForm.category"><option>TP</option><option>크레인</option><option>지게차</option></select></label><label>규격<input v-model.trim="masterForm.spec" placeholder="예: 032" /></label>
-              <label>용량(톤)<input v-model.number="masterForm.capacity" type="number" min="0" /></label><label>보유대수<input v-model.number="masterForm.ownedCount" type="number" min="1" /></label>
-              <label>일 가동시간<input v-model.number="masterForm.dailyHours" type="number" min="1" max="24" /></label><label>가동률(%)<input v-model.number="masterForm.availability" type="number" min="0" max="100" /></label>
-              <label class="editor-checkbox"><input v-model="masterForm.enabled" type="checkbox" /> 사용 장비</label>
+              <label>장비코드<input :value="masterForm.code" readonly /></label><label>장비명<input :value="masterForm.name" readonly /></label>
+              <label>장비구분<input :value="masterForm.category" readonly /></label><label>적재톤수<input :value="`${masterForm.capacity}톤`" readonly /></label>
+              <label>연계상태<input value="운송자원정보 연계" readonly /></label>
+              <label>일 가동시간(HR)<input v-model.number="masterForm.dailyHours" type="number" min="1" max="24" /></label><label>가동률(%)<input v-model.number="masterForm.availability" type="number" min="0" max="100" /></label>
             </div>
             <div v-else-if="masterTab === 'time'" class="editor-fields">
-              <label>PCG<input v-model.trim="masterForm.pcg" placeholder="예: LNGC DK" /></label><label>장비<select v-model="masterForm.equipmentCode"><option v-for="item in equipmentMasters" :key="item.id" :value="item.code">{{ item.code }} · {{ item.name }}</option></select></label>
+              <label>PCG<select v-model="masterForm.pcg"><option v-for="pcg in pcgMasterOptions" :key="pcg">{{ pcg }}</option></select></label><label>장비<select v-model="masterForm.equipmentCode"><option v-for="item in equipmentMasters" :key="item.id" :value="item.code">{{ item.code }} · {{ item.name }}</option></select></label>
               <label>표준시간(HR)<input v-model.number="masterForm.hours" type="number" min=".1" step=".1" /></label>
             </div>
             <div v-else class="editor-fields">
-              <label>PCG<input v-model.trim="masterForm.pcg" placeholder="예: LNGC DK" /></label><label>생산단계<select v-model="masterForm.stage"><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label>
+              <label>PCG<select v-model="masterForm.pcg"><option v-for="pcg in pcgMasterOptions" :key="pcg">{{ pcg }}</option></select></label><label>생산단계<select v-model="masterForm.stage"><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label>
               <label class="wide">운송작업<input v-model.trim="masterForm.task" placeholder="예: 대조주판 배치" /></label><label>기준단계<select v-model="masterForm.triggerStage"><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label>
               <label>기준절점<select v-model="masterForm.triggerPoint"><option>착수</option><option>완료</option></select></label><label>상대일수<input v-model.number="masterForm.offsetDays" type="number" /></label>
               <label>투입장비<select v-model="masterForm.equipmentCode"><option v-for="item in equipmentMasters.filter(master => master.enabled)" :key="item.id" :value="item.code">{{ item.code }} · {{ item.name }}</option></select></label><label>투입수량<input v-model.number="masterForm.quantity" type="number" min="1" /></label>
@@ -1521,38 +1699,57 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
       </div>
 
       <div v-else-if="activeMenu === '중기배차계획'" class="management-page">
-        <header class="management-header"><div><h1>중기배차계획</h1><p>생산계획의 기준일과 배차규칙을 연결해 장비 투입일과 필요시간을 자동 계산합니다.</p></div><button class="primary-small" @click="openDispatchCreate">＋ 배차계획 등록</button></header>
+        <header class="management-header"><div><h1>중기배차계획</h1><p>생산계획의 기준일과 배차규칙을 연결해 장비 투입일과 필요시간을 자동 계산합니다.</p></div><div class="header-actions"><button class="gray-button" @click="openDispatchUpload">엑셀 일괄등록</button><button class="primary-small" @click="openDispatchCreate">＋ 배차계획 등록</button></div></header>
         <ol class="workflow-strip" aria-label="부하율 업무 흐름"><li class="done"><span>1</span><strong>마스터 관리</strong><small>장비·규칙·표준시간</small></li><li class="active"><span>2</span><strong>중기배차계획</strong><small>생산단계별 투입계획</small></li><li><span>3</span><strong>부하율 분석</strong><small>주·월 통계와 과부하</small></li></ol>
         <section class="dispatch-toolbar">
-          <label>생산단계<select v-model="dispatchStageFilter"><option>전체</option><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label>
-          <div class="dispatch-view-switch" role="group" aria-label="배차계획 보기 방식"><button :class="{ active:dispatchView === 'list' }" @click="dispatchView = 'list'">목록</button><button :class="{ active:dispatchView === 'gantt' }" @click="dispatchView = 'gantt'">간트 캘린더</button></div>
-          <span>총 {{ filteredDispatchPlans.length }}건</span>
+          <span class="dispatch-count">총 <strong>{{ filteredDispatchPlans.length }}</strong>건</span>
+          <div class="dispatch-toolbar-controls">
+            <label>생산단계<select v-model="dispatchStageFilter"><option>전체</option><option v-for="stage in ['소조','중조','대조','도장','PE','선적']" :key="stage">{{ stage }}</option></select></label>
+            <div class="dispatch-view-switch" :class="{ calendar:dispatchView === 'gantt' }" role="group" aria-label="배차계획 보기 방식"><button :aria-pressed="dispatchView === 'list'" @click="dispatchView = 'list'">목록</button><button :aria-pressed="dispatchView === 'gantt'" @click="dispatchView = 'gantt'">캘린더</button></div>
+          </div>
         </section>
         <section v-if="dispatchView === 'list'" class="management-card">
           <table class="management-table dispatch-table"><thead><tr><th>계획ID</th><th>호선</th><th>블록</th><th>PCG</th><th>생산단계</th><th>운송작업</th><th>기준일</th><th>투입예정일</th><th>장비</th><th>필요시간</th><th>상태</th><th>관리</th></tr></thead>
             <tbody><tr v-for="plan in filteredDispatchPlans" :key="plan.id"><td>{{ plan.id }}</td><td><strong>{{ plan.project }}</strong></td><td>{{ plan.block }}</td><td>{{ dispatchPlanDetail(plan)?.rule.pcg }}</td><td>{{ dispatchPlanDetail(plan)?.rule.stage }}</td><td>{{ dispatchPlanDetail(plan)?.rule.task }}</td><td>{{ plan.baseDate }}</td><td><strong class="orange-text">{{ dispatchPlanDetail(plan)?.dispatchDate }}</strong></td><td>{{ dispatchPlanDetail(plan)?.rule.equipmentCode }} × {{ dispatchPlanDetail(plan)?.rule.quantity }}</td><td>{{ dispatchPlanDetail(plan)?.requiredHours }} HR</td><td><span class="plan-status" :class="plan.status">{{ plan.status }}</span></td><td class="row-actions"><button @click="editDispatch(plan)">수정</button><button class="delete" @click="deleteDispatch(plan)">삭제</button></td></tr></tbody>
           </table>
         </section>
-        <section v-else class="dispatch-gantt-card" aria-label="중기배차계획 간트 캘린더">
-          <header class="gantt-toolbar"><div><button aria-label="이전 달" @click="moveDispatchCalendarMonth(-1)">‹</button><button @click="showDispatchToday">오늘</button><button aria-label="다음 달" @click="moveDispatchCalendarMonth(1)">›</button></div><h2>{{ dispatchCalendarLabel }}</h2><div class="gantt-legend"><span><i class="계획"></i>계획</span><span><i class="확정"></i>확정</span><span><i class="완료"></i>완료</span></div></header>
-          <div class="gantt-scroll">
-            <div class="gantt-grid" :style="{ '--gantt-days':dispatchCalendarDays.length }">
-              <div class="gantt-corner"><strong>호선 / 블록</strong><span>생산단계 · 장비</span></div>
-              <div class="gantt-days">
-                <div v-for="date in dispatchCalendarDays" :key="date.day" :class="{ weekend:date.weekend, today:date.today }"><strong>{{ date.day }}</strong><span>{{ date.weekday }}</span></div>
+        <section v-else class="dispatch-calendar-card" aria-label="중기배차계획 캘린더">
+          <header class="dispatch-calendar-header">
+            <div><strong>배차계획 캘린더</strong><span>일정과 주·월별 장비 투입시간을 함께 확인합니다.</span></div>
+            <div class="calendar-mode-tabs" role="tablist" aria-label="캘린더 표시 방식"><button role="tab" :aria-selected="dispatchCalendarMode === 'gantt'" @click="dispatchCalendarMode = 'gantt'">일정 간트</button><button role="tab" :aria-selected="dispatchCalendarMode === 'load'" @click="dispatchCalendarMode = 'load'">주·월 부하계획</button></div>
+          </header>
+          <div v-if="dispatchCalendarMode === 'gantt'" class="dispatch-gantt-card">
+            <header class="gantt-toolbar"><div><button aria-label="이전 달" @click="moveDispatchCalendarMonth(-1)">‹</button><button @click="showDispatchToday">오늘</button><button aria-label="다음 달" @click="moveDispatchCalendarMonth(1)">›</button></div><h2>{{ dispatchCalendarLabel }}</h2><div class="gantt-legend"><span><i class="계획"></i>계획</span><span><i class="확정"></i>확정</span><span><i class="완료"></i>완료</span></div></header>
+            <div class="gantt-scroll">
+              <div class="gantt-grid" :style="{ '--gantt-days':dispatchCalendarDays.length }">
+                <div class="gantt-corner"><strong>호선 / 블록</strong><span>생산단계 · 장비</span></div>
+                <div class="gantt-days"><div v-for="date in dispatchCalendarDays" :key="date.day" :class="{ weekend:date.weekend, today:date.today }"><strong>{{ date.day }}</strong><span>{{ date.weekday }}</span></div></div>
+                <template v-for="row in dispatchGanttRows" :key="row.plan.id">
+                  <div class="gantt-row-label"><button @click="editDispatch(row.plan)"><strong>{{ row.plan.project }} · {{ row.plan.block }}</strong><span>{{ row.detail.rule.stage }} · {{ row.detail.rule.equipmentCode }} × {{ row.detail.rule.quantity }}</span></button></div>
+                  <div class="gantt-timeline"><button class="gantt-bar" :class="row.plan.status" :style="{ left:`calc((${row.startDay - 1}) * var(--gantt-day-width) + 3px)`, width:`calc(${row.visibleDays} * var(--gantt-day-width) - 6px)` }" :title="`${row.detail.rule.task} · ${row.startDate} ~ ${row.endDate} · ${row.detail.requiredHours} HR`" @click="editDispatch(row.plan)"><strong>{{ row.detail.rule.task }}</strong><span>{{ row.detail.requiredHours }} HR</span></button></div>
+                </template>
               </div>
-              <template v-for="row in dispatchGanttRows" :key="row.plan.id">
-                <div class="gantt-row-label"><button @click="editDispatch(row.plan)"><strong>{{ row.plan.project }} · {{ row.plan.block }}</strong><span>{{ row.detail.rule.stage }} · {{ row.detail.rule.equipmentCode }} × {{ row.detail.rule.quantity }}</span></button></div>
-                <div class="gantt-timeline">
-                  <button class="gantt-bar" :class="row.plan.status" :style="{ left:`calc((${row.startDay - 1}) * var(--gantt-day-width) + 3px)`, width:`calc(${row.visibleDays} * var(--gantt-day-width) - 6px)` }" :title="`${row.detail.rule.task} · ${row.startDate} ~ ${row.endDate} · ${row.detail.requiredHours} HR`" @click="editDispatch(row.plan)">
-                    <strong>{{ row.detail.rule.task }}</strong><span>{{ row.detail.requiredHours }} HR</span>
-                  </button>
-                </div>
-              </template>
+              <p v-if="!dispatchGanttRows.length" class="gantt-empty">{{ dispatchCalendarLabel }}에 표시할 배차계획이 없습니다.</p>
             </div>
-            <p v-if="!dispatchGanttRows.length" class="gantt-empty">{{ dispatchCalendarLabel }}에 표시할 배차계획이 없습니다.</p>
+            <footer class="gantt-guide">막대 길이는 장비의 일 가동시간을 기준으로 계산되며, 계획을 클릭하면 바로 수정할 수 있습니다.</footer>
           </div>
-          <footer class="gantt-guide">막대 길이는 장비의 일 가동시간을 기준으로 계산되며, 계획을 클릭하면 바로 수정할 수 있습니다.</footer>
+          <div v-else class="dispatch-load-calendar">
+            <div class="dispatch-load-controls">
+              <div class="load-plan-view" role="group" aria-label="조회 단위"><button :class="{ active:loadPlanView === 'week' }" @click="loadPlanView = 'week'">주별</button><button :class="{ active:loadPlanView === 'month' }" @click="loadPlanView = 'month'">월별</button></div>
+              <label>기준연도<select v-model.number="loadPlanYear"><option :value="2025">2025년</option><option :value="2026">2026년</option><option :value="2027">2027년</option></select></label>
+              <label>PCG<select v-model="loadPlanPcg"><option v-for="pcg in loadPlanPcgs" :key="pcg">{{ pcg }}</option></select></label>
+              <label>장비구분<select v-model="loadPlanEquipmentType"><option v-for="type in loadPlanEquipmentTypes" :key="type">{{ type }}</option></select></label>
+              <label>장비 검색<input v-model="loadPlanKeyword" type="search" placeholder="PCG, 장비명, 장비코드" /></label>
+            </div>
+            <div class="load-plan-table-wrap" tabindex="0" aria-label="운송자원 부하 계획표 가로 스크롤 영역">
+              <table class="load-plan-table">
+                <caption class="sr-only">중기배차계획 기준 운송자원별 {{ loadPlanView === 'month' ? '월간' : '주간' }} 예상 투입시간</caption>
+                <thead><tr><th scope="col">장비구분</th><th scope="col">PCG</th><th scope="col">장비코드</th><th scope="col">표준시간</th><th scope="col">합계</th><th v-for="period in loadPlanPeriods" :key="period.key" scope="col">{{ period.label }}</th></tr></thead>
+                <tbody><tr v-for="resource in filteredLoadResources" :key="`${resource.pcg}-${resource.code}`"><td><span class="use-chip">{{ resource.category }}</span></td><th scope="row">{{ resource.pcg }}</th><td><strong>{{ resource.code }}</strong></td><td>{{ resource.standardHours }} HR</td><td class="row-total">{{ formatPlanHours(loadPlanPeriods.reduce((sum, period) => sum + loadPlanHours(resource, period.key), 0)) }}</td><td v-for="period in loadPlanPeriods" :key="period.key" :class="loadPlanCellClass(loadPlanHours(resource, period.key))">{{ formatPlanHours(loadPlanHours(resource, period.key)) }}</td></tr></tbody>
+                <tfoot v-if="filteredLoadResources.length"><tr><th colspan="4" scope="row">기간 합계</th><td>{{ formatPlanHours(loadPlanTotalHours) }}</td><td v-for="period in loadPlanPeriodTotals" :key="period.key">{{ formatPlanHours(period.total) }}</td></tr></tfoot>
+              </table>
+            </div>
+          </div>
         </section>
         <div v-if="dispatchEditorOpen" class="editor-backdrop" @click.self="dispatchEditorOpen = false">
           <section class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="dispatch-editor-title">
@@ -1565,49 +1762,77 @@ onBeforeUnmount(() => { destroyVworldMap(); destroyPhysicalMap() })
             <p v-if="dispatchNotice" class="editor-error">{{ dispatchNotice }}</p><footer><button class="gray-button" @click="dispatchEditorOpen = false">취소</button><button class="primary-small" @click="saveDispatch">{{ dispatchEditingId ? '수정 완료' : '계획 등록' }}</button></footer>
           </section>
         </div>
+        <div v-if="dispatchUploadOpen" class="editor-backdrop" @click.self="dispatchUploadOpen = false">
+          <section class="editor-dialog dispatch-upload-dialog" role="dialog" aria-modal="true" aria-labelledby="dispatch-upload-title">
+            <header><div><span>EXCEL BULK UPLOAD</span><h2 id="dispatch-upload-title">중기배차계획 엑셀 일괄등록</h2></div><button aria-label="엑셀 일괄등록창 닫기" @click="dispatchUploadOpen = false">×</button></header>
+            <div class="dispatch-upload-guide">
+              <div><strong>필수 컬럼</strong><span>호선 · 블록 · 배차규칙ID · 기준일</span><small>상태는 계획/확정/완료 중 선택하며, 미입력 시 계획으로 등록됩니다.</small></div>
+              <button class="gray-button" type="button" @click="downloadDispatchTemplate">업로드 양식 다운로드</button>
+            </div>
+            <label class="dispatch-file-drop">
+              <input type="file" accept=".xlsx,.xls" @change="handleDispatchExcelUpload" />
+              <strong>{{ dispatchUploadFileName || '엑셀 파일을 선택해주세요' }}</strong>
+              <span>.xlsx 또는 .xls · 첫 번째 시트를 기준으로 읽습니다.</span>
+            </label>
+            <p v-if="dispatchUploadNotice" class="editor-error">{{ dispatchUploadNotice }}</p>
+            <div v-if="dispatchUploadRows.length" class="dispatch-upload-summary" aria-live="polite"><span>전체 {{ dispatchUploadRows.length }}건</span><strong>등록 가능 {{ validDispatchUploadRows.length }}건</strong><b>오류 {{ dispatchUploadRows.length - validDispatchUploadRows.length }}건</b></div>
+            <div v-if="dispatchUploadRows.length" class="dispatch-upload-table-wrap">
+              <table class="dispatch-upload-table"><thead><tr><th>행</th><th>호선</th><th>블록</th><th>배차규칙</th><th>기준일</th><th>상태</th><th>검증</th></tr></thead><tbody><tr v-for="row in dispatchUploadRows" :key="row.rowNumber" :class="{ invalid:row.errors.length }"><td>{{ row.rowNumber }}</td><td>{{ row.project || '-' }}</td><td>{{ row.block || '-' }}</td><td>{{ row.ruleId || '-' }}</td><td>{{ row.baseDate || '-' }}</td><td>{{ row.status }}</td><td>{{ row.errors.length ? row.errors.join(', ') : '정상' }}</td></tr></tbody></table>
+            </div>
+            <footer><button class="gray-button" @click="dispatchUploadOpen = false">취소</button><button class="primary-small" :disabled="!validDispatchUploadRows.length" @click="importDispatchExcelRows">정상 {{ validDispatchUploadRows.length }}건 등록</button></footer>
+          </section>
+        </div>
       </div>
 
       <div v-else-if="activeMenu === '운송자원별 부하율 분석/통계'" class="load-plan-page">
         <header class="load-plan-header">
-          <div><h1>TP 주·월별 부하 계획</h1><p>생산계획과 장비 표준시간을 기준으로 TP 규격별 예상 투입시간을 조회합니다.</p></div>
-          <div class="load-plan-view" role="group" aria-label="조회 단위">
-            <button :class="{ active: loadPlanView === 'week' }" @click="loadPlanView = 'week'">주별</button>
-            <button :class="{ active: loadPlanView === 'month' }" @click="loadPlanView = 'month'">월별</button>
-          </div>
+          <div><h1>운송자원별 부하율 분석/통계</h1><p>TP와 크레인의 소요시간과 가용시간을 비교해 월별 과부하를 분석합니다.</p></div>
+          <span class="analysis-source">기준: 2026년 운송자원 부하 계획</span>
         </header>
 
-        <section class="load-plan-filters" aria-label="부하 계획 조회 조건">
-          <label>기준연도<select v-model.number="loadPlanYear"><option :value="2025">2025년</option><option :value="2026">2026년</option><option :value="2027">2027년</option></select></label>
-          <label>PCG<select v-model="loadPlanPcg"><option v-for="pcg in loadPlanPcgs" :key="pcg">{{ pcg }}</option></select></label>
-          <label class="load-plan-search">장비 검색<input v-model="loadPlanKeyword" type="search" placeholder="PCG, 규격, 장비코드" /></label>
-          <button class="gray-button" type="button" @click="loadPlanPcg = '전체'; loadPlanKeyword = ''">초기화</button>
+        <section class="load-plan-filters analysis-filters" aria-label="운송자원 부하율 조회 조건">
+          <label>기준연도<select disabled><option>2026년</option></select></label>
+          <label>기준월<select v-model.number="tpAnalysisMonth"><option v-for="(month,index) in tpAnalysisMonths" :key="month" :value="index + 1">{{ month }}</option></select></label>
+          <label>장비구분<select v-model="tpAnalysisCategory" @change="tpAnalysisEquipment = '전체'"><option>전체</option><option>TP</option><option>크레인</option></select></label>
+          <label>운송자원<select v-model="tpAnalysisEquipment"><option>전체</option><option v-for="row in tpAnalysisEquipmentOptions" :key="row.code" :value="row.code">{{ row.code }} · {{ row.spec }}</option></select></label>
+          <button class="gray-button" type="button" @click="tpAnalysisMonth = 7; tpAnalysisCategory = '전체'; tpAnalysisEquipment = '전체'">초기화</button>
         </section>
 
-        <section class="load-plan-summary" aria-label="부하 계획 요약">
-          <article><span>조회 장비</span><strong>{{ filteredLoadResources.length }}<small>종</small></strong><p>TP 규격·PCG 조합</p></article>
-          <article><span>총 투입시간</span><strong>{{ formatPlanHours(loadPlanTotalHours) }}<small>HR</small></strong><p>{{ loadPlanView === 'month' ? '월별' : '주별' }} 계획 합계</p></article>
-          <article><span>최대 부하 구간</span><strong>{{ loadPlanPeak.label }}</strong><p>{{ formatPlanHours(loadPlanPeak.total) }} HR 예정</p></article>
-          <article class="risk"><span>과부하 예상</span><strong>{{ loadPlanOverloads }}<small>건</small></strong><p>가용시간 기준 초과</p></article>
+        <section class="load-plan-summary analysis-summary" aria-label="운송자원 부하율 핵심 지표">
+          <article><span>{{ tpAnalysisMonths[tpAnalysisMonth - 1] }} 소요시간</span><strong>{{ formatPlanHours(tpSelectedSummary.required) }}<small>HR</small></strong><p>배차계획 기준 장비 작업시간</p></article>
+          <article><span>{{ tpAnalysisMonths[tpAnalysisMonth - 1] }} 가용시간</span><strong>{{ formatPlanHours(tpSelectedSummary.available) }}<small>HR</small></strong><p>정규 9시간 근무 기준</p></article>
+          <article :class="tpRateClass(tpSelectedSummary.rate)"><span>종합 부하율</span><strong>{{ formatPlanHours(tpSelectedSummary.rate) }}<small>%</small></strong><p>소요시간 ÷ 가용시간</p></article>
+          <article class="risk"><span>과부하 장비</span><strong>{{ tpSelectedSummary.overloads }}<small>종</small></strong><p>부하율 100% 초과</p></article>
+          <article><span>연간 최고 부하월</span><strong>{{ tpAnalysisPeak.label }}</strong><p>{{ formatPlanHours(tpAnalysisPeak.rate) }}% 예상</p></article>
         </section>
 
-        <section class="load-plan-card">
+        <div class="analysis-grid">
+          <section class="load-plan-card analysis-chart-card">
+            <div class="load-plan-card-head"><div><h2>2026년 월별 운송자원 소요·가용시간</h2><p>TP·크레인 구분 또는 개별 장비를 선택해 부하를 비교합니다.</p></div><div class="chart-legend"><span><i class="required"></i>소요시간</span><span><i class="available"></i>가용시간</span></div></div>
+            <div class="tp-load-chart" role="img" aria-label="2026년 월별 운송자원 소요시간과 가용시간 막대 그래프">
+              <button v-for="(month,index) in tpMonthlyTotals" :key="month.label" :class="{ active:tpAnalysisMonth === index + 1 }" :aria-label="`${month.label} 소요 ${formatPlanHours(month.required)}시간, 가용 ${formatPlanHours(month.available)}시간, 부하율 ${formatPlanHours(month.rate)}퍼센트`" @click="tpAnalysisMonth = index + 1">
+                <span class="chart-bars"><i class="required" :style="{ height:tpBarHeight(month.required) }"></i><i class="available" :style="{ height:tpBarHeight(month.available) }"></i></span>
+                <strong :class="tpRateClass(month.rate)">{{ formatPlanHours(month.rate) }}%</strong><small>{{ month.label }}</small>
+              </button>
+            </div>
+          </section>
+          <section class="load-plan-card analysis-risk-card">
+            <div class="load-plan-card-head"><div><h2>장비 부하 진단</h2><p>{{ tpAnalysisMonths[tpAnalysisMonth - 1] }} 기준</p></div></div>
+            <ul class="equipment-load-list">
+              <li v-for="row in tpAnalysisCategoryRows" :key="row.code"><div><strong>{{ row.type }} · {{ row.code }} · {{ row.spec }}</strong><span>{{ formatPlanHours(row.required) }} / {{ formatPlanHours(row.available) }} HR</span></div><div class="load-progress"><i :class="tpRateClass(row.loadRate)" :style="{ width:`${Math.min(row.loadRate,100)}%` }"></i></div><b :class="tpRateClass(row.loadRate)">{{ formatPlanHours(row.loadRate) }}%</b></li>
+            </ul>
+          </section>
+        </div>
+
+        <section class="load-plan-card analysis-table-card">
           <div class="load-plan-card-head">
-            <div><h2>{{ loadPlanYear }}년 TP {{ loadPlanView === 'month' ? '월별' : '주별' }} 투입시간</h2><p>단위: HR · 셀을 가로로 스크롤하여 전체 기간을 확인할 수 있습니다.</p></div>
-            <div class="load-legend" aria-label="부하 상태 범례"><span><i class="normal"></i>정상</span><span><i class="warning"></i>주의</span><span><i class="critical"></i>과부하</span></div>
+            <div><h2>운송자원별 소요시간·가용시간 상세</h2><p>장비별 가동기준과 배차계획을 기준으로 TP·크레인 부하를 함께 조회합니다.</p></div>
+            <div class="load-legend" aria-label="부하 상태 범례"><span><i class="normal"></i>정상 80% 미만</span><span><i class="warning"></i>주의 80~100%</span><span><i class="critical"></i>과부하 100% 초과</span></div>
           </div>
-          <div class="load-plan-table-wrap" tabindex="0" aria-label="TP 부하 계획표 가로 스크롤 영역">
-            <table class="load-plan-table">
-              <caption class="sr-only">TP 장비별 {{ loadPlanView === 'month' ? '월간' : '주간' }} 예상 투입시간</caption>
-              <thead><tr><th scope="col">TP 규격</th><th scope="col">PCG</th><th scope="col">장비코드</th><th scope="col">표준시간</th><th scope="col">합계</th><th v-for="period in loadPlanPeriods" :key="period.key" scope="col">{{ period.label }}</th></tr></thead>
-              <tbody>
-                <tr v-for="resource in filteredLoadResources" :key="resource.code">
-                  <th scope="row">{{ resource.spec }}</th><td>{{ resource.pcg }}</td><td><strong>{{ resource.code }}</strong></td><td>{{ resource.standardHours }} HR</td>
-                  <td class="row-total">{{ formatPlanHours(loadPlanPeriods.reduce((sum, period) => sum + loadPlanHours(resource, period.key), 0)) }}</td>
-                  <td v-for="period in loadPlanPeriods" :key="period.key" :class="loadPlanCellClass(loadPlanHours(resource, period.key))">{{ formatPlanHours(loadPlanHours(resource, period.key)) }}</td>
-                </tr>
-                <tr v-if="!filteredLoadResources.length"><td :colspan="loadPlanPeriods.length + 5" class="load-plan-empty">조회 조건에 해당하는 장비가 없습니다.</td></tr>
-              </tbody>
-              <tfoot v-if="filteredLoadResources.length"><tr><th colspan="4" scope="row">기간 합계</th><td>{{ formatPlanHours(loadPlanTotalHours) }}</td><td v-for="period in loadPlanPeriodTotals" :key="period.key">{{ formatPlanHours(period.total) }}</td></tr></tfoot>
+          <div class="analysis-table-wrap">
+            <table class="analysis-table">
+              <thead><tr><th>장비구분</th><th>장비코드</th><th>규격</th><th>{{ tpAnalysisMonths[tpAnalysisMonth - 1] }} 소요시간</th><th>{{ tpAnalysisMonths[tpAnalysisMonth - 1] }} 가용시간</th><th>잔여시간</th><th>부하율</th><th>연간 소요시간</th><th>연간 가용시간</th><th>상태</th></tr></thead>
+              <tbody><tr v-for="row in tpAnalysisFilteredRows" :key="row.code"><td><span class="use-chip">{{ row.type }}</span></td><th>{{ row.code }}</th><td>{{ row.spec }}</td><td>{{ formatPlanHours(row.required) }} HR</td><td>{{ formatPlanHours(row.available) }} HR</td><td :class="{ negative:row.available - row.required < 0 }">{{ formatPlanHours(row.available - row.required) }} HR</td><td><strong :class="tpRateClass(row.loadRate)">{{ formatPlanHours(row.loadRate) }}%</strong></td><td>{{ formatPlanHours(row.annualRequired) }} HR</td><td>{{ formatPlanHours(row.annualAvailable) }} HR</td><td><span class="load-status" :class="tpRateClass(row.loadRate)">{{ row.loadRate > 100 ? '과부하' : row.loadRate >= 80 ? '주의' : '정상' }}</span></td></tr></tbody>
             </table>
           </div>
         </section>
